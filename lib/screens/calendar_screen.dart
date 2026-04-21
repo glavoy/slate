@@ -111,28 +111,46 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
 
     return Column(
       children: [
-        // Weekly / Monthly toggle
+        // Weekly / Monthly toggle + Today button
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-          child: SegmentedButton<CalendarFormat>(
-            segments: const [
-              ButtonSegment(
-                value: CalendarFormat.week,
-                label: Text('Weekly'),
-                icon: Icon(Icons.view_week_outlined, size: 16),
+          child: Row(
+            children: [
+              Expanded(
+                child: SegmentedButton<CalendarFormat>(
+                  segments: const [
+                    ButtonSegment(
+                      value: CalendarFormat.week,
+                      label: Text('Weekly'),
+                      icon: Icon(Icons.view_week_outlined, size: 16),
+                    ),
+                    ButtonSegment(
+                      value: CalendarFormat.month,
+                      label: Text('Monthly'),
+                      icon: Icon(Icons.calendar_month_outlined, size: 16),
+                    ),
+                  ],
+                  selected: {_format},
+                  onSelectionChanged: (s) =>
+                      setState(() => _format = s.first),
+                  style: const ButtonStyle(
+                    visualDensity: VisualDensity.compact,
+                  ),
+                ),
               ),
-              ButtonSegment(
-                value: CalendarFormat.month,
-                label: Text('Monthly'),
-                icon: Icon(Icons.calendar_month_outlined, size: 16),
+              const SizedBox(width: 8),
+              OutlinedButton(
+                onPressed: () => setState(() {
+                  _focusedDay = DateTime.now();
+                  _selectedDay = DateTime.now();
+                }),
+                style: OutlinedButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                ),
+                child: const Text('Today'),
               ),
             ],
-            selected: {_format},
-            onSelectionChanged: (s) =>
-                setState(() => _format = s.first),
-            style: const ButtonStyle(
-              visualDensity: VisualDensity.compact,
-            ),
           ),
         ),
 

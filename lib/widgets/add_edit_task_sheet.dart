@@ -124,7 +124,7 @@ class _AddEditTaskSheetState extends ConsumerState<AddEditTaskSheet> {
       sheetTitle = 'Edit Task';
     }
 
-    return Padding(
+    return SingleChildScrollView(
       padding: EdgeInsets.only(
         left: 24,
         right: 24,
