@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
@@ -34,6 +35,12 @@ class TaskList extends _$TaskList {
         .subscribe();
 
     ref.onDispose(channel.unsubscribe);
+
+    // Re-evaluate overdue status every minute while the app is running
+    final timer = Timer.periodic(const Duration(minutes: 1), (_) {
+      ref.invalidateSelf();
+    });
+    ref.onDispose(timer.cancel);
 
     return TaskRepository(client).fetchActiveTasks();
   }
@@ -133,12 +140,12 @@ class CompletedTaskList extends _$CompletedTaskList {
 // ignore: deprecated_member_use_from_same_package
 List<Task> overdueTasks(OverdueTasksRef ref) {
   final tasks = ref.watch(taskListProvider).valueOrNull ?? [];
-  return tasks.where((t) => isOverdue(t.dueDate)).toList();
+  return tasks.where((t) => isOverdue(t.dueDate, t.dueTime)).toList();
 }
 
 @riverpod
 // ignore: deprecated_member_use_from_same_package
 List<Task> upcomingTasks(UpcomingTasksRef ref) {
   final tasks = ref.watch(taskListProvider).valueOrNull ?? [];
-  return tasks.where((t) => !isOverdue(t.dueDate)).toList();
+  return tasks.where((t) => !isOverdue(t.dueDate, t.dueTime)).toList();
 }

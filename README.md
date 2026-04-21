@@ -75,14 +75,90 @@ flutter pub get
 dart run build_runner build --delete-conflicting-outputs
 ```
 
-### 4. Run
+### 4. Run (development)
 
 ```bash
 # macOS
 flutter run -d macos
 
-# Android
+# Android (with a device or emulator connected)
 flutter run -d <device-id>
+```
+
+---
+
+## Building & Installing
+
+### Android APK
+
+```bash
+flutter build apk --release
+```
+
+The APK is output to:
+
+```
+build/app/outputs/flutter-apk/app-release.apk
+```
+
+Transfer this file to your Android device and install it. You may need to enable **Install unknown apps** in your device settings the first time.
+
+### macOS App
+
+**Build:**
+
+```bash
+flutter build macos --release
+```
+
+The app bundle is output to:
+
+```
+build/macos/Build/Products/Release/slate.app
+```
+
+**Install:**
+
+```bash
+rm -rf /Applications/Slate.app
+cp -r build/macos/Build/Products/Release/slate.app /Applications/Slate.app
+```
+
+Then open it from `/Applications` or Spotlight. The first time macOS may show a Gatekeeper warning — right-click the app in Finder and choose **Open** to bypass it.
+
+**Launch at login:**
+
+A LaunchAgent is used to open the app automatically on login:
+
+```bash
+# Create the LaunchAgent
+cat > ~/Library/LaunchAgents/com.glavoy.slate.plist << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.glavoy.slate</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/open</string>
+        <string>-a</string>
+        <string>/Applications/Slate.app</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+</dict>
+</plist>
+EOF
+
+# Register it
+launchctl load ~/Library/LaunchAgents/com.glavoy.slate.plist
+```
+
+To stop launch at login:
+
+```bash
+launchctl unload ~/Library/LaunchAgents/com.glavoy.slate.plist
 ```
 
 ## Project Structure

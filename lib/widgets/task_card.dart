@@ -206,12 +206,14 @@ class TaskCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final overdue = du.isOverdue(task.dueDate);
+    final overdue = du.isOverdue(task.dueDate, task.dueTime);
     final isMacOS = Theme.of(context).platform == TargetPlatform.macOS;
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final cardColor = overdue
-        ? Color.lerp(colorScheme.surface, Colors.red, 0.08)!
+        ? (theme.brightness == Brightness.dark
+            ? Colors.red.shade900.withValues(alpha: 0.5)
+            : Colors.red.shade50)
         : colorScheme.surface;
 
     return Slidable(

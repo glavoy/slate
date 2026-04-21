@@ -1,8 +1,13 @@
 import 'package:flutter/material.dart';
 import '../models/recurrence.dart';
 
-bool isOverdue(DateTime dueDate) {
+bool isOverdue(DateTime dueDate, [String? dueTime]) {
   final now = DateTime.now();
+  if (dueTime != null) {
+    final t = parseTime(dueTime);
+    final due = DateTime(dueDate.year, dueDate.month, dueDate.day, t.hour, t.minute);
+    return due.isBefore(now);
+  }
   final todayMidnight = DateTime(now.year, now.month, now.day);
   final dueMidnight = DateTime(dueDate.year, dueDate.month, dueDate.day);
   return dueMidnight.isBefore(todayMidnight);

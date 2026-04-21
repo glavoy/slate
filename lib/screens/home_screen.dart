@@ -31,6 +31,7 @@ class HomeScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
+        centerTitle: false,
         title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -52,11 +53,6 @@ class HomeScreen extends ConsumerWidget {
             tooltip: 'Toggle theme',
             onPressed: () =>
                 ref.read(themeNotifierProvider.notifier).toggle(),
-          ),
-          IconButton(
-            icon: const Icon(Icons.add),
-            tooltip: 'New task',
-            onPressed: () => _openAdd(context),
           ),
         ],
       ),
