@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/recurrence.dart';
 import '../models/task.dart';
+import '../providers/settings_providers.dart';
 import '../providers/task_providers.dart';
 import '../utils/date_utils.dart' as du;
 
@@ -15,8 +16,9 @@ class CompletedTaskCard extends ConsumerWidget {
 
   Future<void> _handleUndo(BuildContext context, WidgetRef ref) async {
     if (_isRecurring && _hasSeries) {
-      final nextDue =
-          du.formatDate(du.nextOccurrence(task.dueDate, task.recurrence));
+      final dateStyle = ref.read(dateFormatNotifierProvider);
+      final nextDue = du.formatDateAs(
+          du.nextOccurrence(task.dueDate, task.recurrence), dateStyle);
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
@@ -71,8 +73,9 @@ class CompletedTaskCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final dateStyle = ref.watch(dateFormatNotifierProvider);
     final completedText = task.completedAt != null
-        ? 'Completed ${du.formatDate(task.completedAt!)}'
+        ? 'Completed ${du.formatDateAs(task.completedAt!, dateStyle)}'
         : 'Completed';
 
     return Container(

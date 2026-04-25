@@ -4,7 +4,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/tracker_entry.dart';
 import '../models/tracker_metric.dart';
+import '../providers/settings_providers.dart';
 import '../providers/tracker_providers.dart';
+import '../utils/date_utils.dart' as du;
 import '../widgets/sparkline.dart';
 
 class TrackerMetricScreen extends ConsumerWidget {
@@ -16,24 +18,17 @@ class TrackerMetricScreen extends ConsumerWidget {
     return v.toStringAsFixed(2);
   }
 
-  String _formatRecorded(DateTime dt) {
+  String _formatRecorded(
+      DateTime dt, DateFormatStyle dateStyle, TimeFormatStyle timeStyle) {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final target = DateTime(dt.year, dt.month, dt.day);
     final diff = today.difference(target).inDays;
-    final hh = dt.hour.toString().padLeft(2, '0');
-    final mm = dt.minute.toString().padLeft(2, '0');
-    if (diff == 0) return 'Today $hh:$mm';
-    if (diff == 1) return 'Yesterday $hh:$mm';
-    const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-    ];
-    final m = months[dt.month - 1];
-    final showYear = dt.year != now.year;
-    return showYear
-        ? '$m ${dt.day}, ${dt.year} $hh:$mm'
-        : '$m ${dt.day} $hh:$mm';
+    final time =
+        du.formatTimeAs(TimeOfDay(hour: dt.hour, minute: dt.minute), timeStyle);
+    if (diff == 0) return 'Today $time';
+    if (diff == 1) return 'Yesterday $time';
+    return '${du.formatDateAs(dt, dateStyle)} $time';
   }
 
   Future<void> _logValue(BuildContext context, WidgetRef ref) async {
@@ -163,6 +158,8 @@ class TrackerMetricScreen extends ConsumerWidget {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final asyncEntries = ref.watch(trackerEntriesProvider(metric.id));
+    final dateStyle = ref.watch(dateFormatNotifierProvider);
+    final timeStyle = ref.watch(timeFormatNotifierProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -272,7 +269,8 @@ class TrackerMetricScreen extends ConsumerWidget {
                             ),
                             subtitle: Text(
                               [
-                                _formatRecorded(e.recordedAt),
+                                _formatRecorded(
+                                    e.recordedAt, dateStyle, timeStyle),
                                 if (e.note != null && e.note!.isNotEmpty)
                                   e.note!,
                               ].join(' · '),

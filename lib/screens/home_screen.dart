@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/supabase_provider.dart';
 import '../providers/task_providers.dart';
-import '../providers/theme_provider.dart';
 import '../widgets/add_edit_task_sheet.dart';
+import '../widgets/calendar_view.dart';
 import '../widgets/completed_task_card.dart';
 import '../widgets/simple_list_section.dart';
 import '../widgets/task_section.dart';
+
+enum _TasksView { list, calendar }
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -16,28 +18,70 @@ class HomeScreen extends ConsumerStatefulWidget {
 }
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
+  _TasksView _view = _TasksView.list;
   bool _simpleListExpanded = true;
   bool _completedExpanded = true;
+  DateTime _selectedCalendarDay = DateTime.now();
 
   void _openAdd(BuildContext context) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      builder: (_) => const AddEditTaskSheet(),
+      builder: (_) => AddEditTaskSheet(
+        initialDate:
+            _view == _TasksView.calendar ? _selectedCalendarDay : null,
+      ),
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final themeMode = ref.watch(themeNotifierProvider);
+  Widget _buildSimpleListSection(ThemeData theme, ColorScheme colorScheme) {
+    final header = InkWell(
+      onTap: () =>
+          setState(() => _simpleListExpanded = !_simpleListExpanded),
+      child: Container(
+        color: theme.scaffoldBackgroundColor,
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+        child: Row(
+          children: [
+            Text(
+              'SIMPLE LIST',
+              style: theme.textTheme.labelLarge?.copyWith(
+                color: colorScheme.onSurface.withValues(alpha: 0.6),
+                letterSpacing: 0.8,
+              ),
+            ),
+            const SizedBox(width: 4),
+            Icon(
+              _simpleListExpanded
+                  ? Icons.expand_more
+                  : Icons.chevron_right,
+              size: 18,
+              color: colorScheme.onSurface.withValues(alpha: 0.6),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        header,
+        if (_simpleListExpanded) ...[
+          const SimpleListSection(),
+          const SizedBox(height: 8),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildListView(ThemeData theme, ColorScheme colorScheme) {
     final taskListAsync = ref.watch(taskListProvider);
     final overdue = ref.watch(overdueTasksProvider);
     final upcoming = ref.watch(upcomingTasksProvider);
     final completedAsync = ref.watch(completedTaskListProvider);
     final showAllCompleted = ref.watch(showAllCompletedProvider);
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
 
     final activeTasks = taskListAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
@@ -45,20 +89,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       data: (_) {
         return CustomScrollView(
           slivers: [
-            SliverPersistentHeader(
-              pinned: true,
-              delegate: _SectionHeader(
-                title: 'SIMPLE LIST',
-                theme: theme,
-                isExpanded: _simpleListExpanded,
-                onTap: () => setState(
-                    () => _simpleListExpanded = !_simpleListExpanded),
-              ),
-            ),
-            if (_simpleListExpanded) ...[
-              const SliverToBoxAdapter(child: SimpleListSection()),
-              const SliverToBoxAdapter(child: SizedBox(height: 8)),
-            ],
             if (overdue.isNotEmpty) ...[
               SliverPersistentHeader(
                 pinned: true,
@@ -151,6 +181,91 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       ),
     );
 
+    return Column(
+      children: [
+        Expanded(child: activeTasks),
+        const Divider(height: 1),
+        if (_completedExpanded)
+          Flexible(
+            flex: 0,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(context).size.height * 0.3,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  completedHeader,
+                  Expanded(
+                    child: completedAsync.when(
+                      loading: () =>
+                          const Center(child: CircularProgressIndicator()),
+                      error: (_, _) => const SizedBox.shrink(),
+                      data: (completed) => completed.isEmpty
+                          ? Center(
+                              child: Text(
+                                'No completed tasks',
+                                style: TextStyle(
+                                  color: colorScheme.onSurface
+                                      .withValues(alpha: 0.35),
+                                ),
+                              ),
+                            )
+                          : ListView.builder(
+                              itemCount: completed.length,
+                              itemBuilder: (_, i) =>
+                                  CompletedTaskCard(task: completed[i]),
+                            ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          )
+        else
+          completedHeader,
+      ],
+    );
+  }
+
+  Widget _buildViewToggle() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+      child: SegmentedButton<_TasksView>(
+        segments: const [
+          ButtonSegment(
+            value: _TasksView.list,
+            label: Text('List'),
+            icon: Icon(Icons.view_list_outlined, size: 16),
+          ),
+          ButtonSegment(
+            value: _TasksView.calendar,
+            label: Text('Calendar'),
+            icon: Icon(Icons.calendar_month_outlined, size: 16),
+          ),
+        ],
+        selected: {_view},
+        onSelectionChanged: (s) => setState(() => _view = s.first),
+        style: const ButtonStyle(
+          visualDensity: VisualDensity.compact,
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    final body = _view == _TasksView.list
+        ? _buildListView(theme, colorScheme)
+        : CalendarView(
+            initialSelectedDay: _selectedCalendarDay,
+            onDaySelected: (day) =>
+                setState(() => _selectedCalendarDay = day),
+          );
+
     return Scaffold(
       appBar: AppBar(
         title: const Text(
@@ -158,16 +273,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.2),
         ),
         actions: [
-          IconButton(
-            icon: Icon(
-              themeMode == ThemeMode.dark
-                  ? Icons.light_mode_outlined
-                  : Icons.dark_mode_outlined,
-            ),
-            tooltip: 'Toggle theme',
-            onPressed: () =>
-                ref.read(themeNotifierProvider.notifier).toggle(),
-          ),
           IconButton(
             icon: const Icon(Icons.logout),
             tooltip: 'Sign out',
@@ -178,47 +283,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       ),
       body: Column(
         children: [
-          Expanded(child: activeTasks),
-          const Divider(height: 1),
-          if (_completedExpanded)
-            Flexible(
-              flex: 0,
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxHeight: MediaQuery.of(context).size.height * 0.3,
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    completedHeader,
-                    Expanded(
-                      child: completedAsync.when(
-                        loading: () =>
-                            const Center(child: CircularProgressIndicator()),
-                        error: (_, _) => const SizedBox.shrink(),
-                        data: (completed) => completed.isEmpty
-                            ? Center(
-                                child: Text(
-                                  'No completed tasks',
-                                  style: TextStyle(
-                                    color: colorScheme.onSurface
-                                        .withValues(alpha: 0.35),
-                                  ),
-                                ),
-                              )
-                            : ListView.builder(
-                                itemCount: completed.length,
-                                itemBuilder: (_, i) =>
-                                    CompletedTaskCard(task: completed[i]),
-                              ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            )
-          else
-            completedHeader,
+          _buildViewToggle(),
+          _buildSimpleListSection(theme, colorScheme),
+          Expanded(child: body),
         ],
       ),
       floatingActionButton: FloatingActionButton(
@@ -234,15 +301,11 @@ class _SectionHeader extends SliverPersistentHeaderDelegate {
   final String title;
   final Color? color;
   final ThemeData theme;
-  final bool? isExpanded;
-  final VoidCallback? onTap;
 
   const _SectionHeader({
     required this.title,
     this.color,
     required this.theme,
-    this.isExpanded,
-    this.onTap,
   });
 
   @override
@@ -255,37 +318,18 @@ class _SectionHeader extends SliverPersistentHeaderDelegate {
       BuildContext context, double shrinkOffset, bool overlapsContent) {
     final labelColor =
         color ?? theme.colorScheme.onSurface.withValues(alpha: 0.6);
-    final row = Row(
-      children: [
-        Text(
-          title,
-          style: theme.textTheme.labelLarge?.copyWith(
-            color: labelColor,
-            letterSpacing: 0.8,
-          ),
-        ),
-        if (isExpanded != null) ...[
-          const SizedBox(width: 4),
-          Icon(
-            isExpanded! ? Icons.expand_more : Icons.chevron_right,
-            size: 18,
-            color: labelColor,
-          ),
-        ],
-      ],
-    );
 
-    final content = Container(
+    return Container(
       color: theme.scaffoldBackgroundColor,
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
       alignment: Alignment.centerLeft,
-      child: row,
-    );
-
-    if (onTap == null) return content;
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(onTap: onTap, child: content),
+      child: Text(
+        title,
+        style: theme.textTheme.labelLarge?.copyWith(
+          color: labelColor,
+          letterSpacing: 0.8,
+        ),
+      ),
     );
   }
 
@@ -293,7 +337,6 @@ class _SectionHeader extends SliverPersistentHeaderDelegate {
   bool shouldRebuild(_SectionHeader old) =>
       old.title != title ||
       old.color != color ||
-      old.isExpanded != isExpanded ||
       old.theme.brightness != theme.brightness ||
       old.theme.colorScheme != theme.colorScheme;
 }

@@ -4,7 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/note.dart';
 import '../providers/note_providers.dart';
 import '../providers/supabase_provider.dart';
-import '../providers/theme_provider.dart';
 import 'note_editor_screen.dart';
 
 class NotesScreen extends ConsumerWidget {
@@ -52,7 +51,6 @@ class NotesScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final themeMode = ref.watch(themeNotifierProvider);
     final asyncNotes = ref.watch(noteListProvider);
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
@@ -64,14 +62,6 @@ class NotesScreen extends ConsumerWidget {
           style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.2),
         ),
         actions: [
-          IconButton(
-            icon: Icon(themeMode == ThemeMode.dark
-                ? Icons.light_mode_outlined
-                : Icons.dark_mode_outlined),
-            tooltip: 'Toggle theme',
-            onPressed: () =>
-                ref.read(themeNotifierProvider.notifier).toggle(),
-          ),
           IconButton(
             icon: const Icon(Icons.logout),
             tooltip: 'Sign out',

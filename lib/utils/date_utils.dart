@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/recurrence.dart';
+import '../providers/settings_providers.dart';
 
 bool isOverdue(DateTime dueDate, [String? dueTime]) {
   final now = DateTime.now();
@@ -40,6 +41,24 @@ String formatDate(DateTime date) {
   return '$dayName $month ${date.day}$yearSuffix';
 }
 
+String _twoDigit(int n) => n.toString().padLeft(2, '0');
+
+String formatDateAs(DateTime date, DateFormatStyle style) {
+  switch (style) {
+    case DateFormatStyle.dayMonthShort:
+      return formatDate(date);
+    case DateFormatStyle.medium:
+      final month = _monthAbbr[date.month - 1];
+      return '$month ${date.day}, ${date.year}';
+    case DateFormatStyle.dmy:
+      return '${date.day}/${date.month}/${date.year}';
+    case DateFormatStyle.mdy:
+      return '${date.month}/${date.day}/${date.year}';
+    case DateFormatStyle.iso:
+      return '${date.year}-${_twoDigit(date.month)}-${_twoDigit(date.day)}';
+  }
+}
+
 String formatDateGroupHeader(DateTime date) {
   final now = DateTime.now();
   final today = DateTime(now.year, now.month, now.day);
@@ -73,6 +92,15 @@ String formatTime(TimeOfDay t) {
   final minute = t.minute.toString().padLeft(2, '0');
   final period = t.period == DayPeriod.am ? 'AM' : 'PM';
   return '$hour:$minute $period';
+}
+
+String formatTimeAs(TimeOfDay t, TimeFormatStyle style) {
+  switch (style) {
+    case TimeFormatStyle.h12:
+      return formatTime(t);
+    case TimeFormatStyle.h24:
+      return '${_twoDigit(t.hour)}:${_twoDigit(t.minute)}';
+  }
 }
 
 const defaultDueTime = TimeOfDay(hour: 8, minute: 0);

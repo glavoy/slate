@@ -2,17 +2,20 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/task.dart';
 import '../models/recurrence.dart';
+import '../providers/settings_providers.dart';
 import '../providers/task_providers.dart';
 import '../utils/date_utils.dart' as du;
 
 class AddEditTaskSheet extends ConsumerStatefulWidget {
   final Task? task;
   final bool editAllInSeries;
+  final DateTime? initialDate;
 
   const AddEditTaskSheet({
     super.key,
     this.task,
     this.editAllInSeries = false,
+    this.initialDate,
   });
 
   @override
@@ -36,7 +39,7 @@ class _AddEditTaskSheetState extends ConsumerState<AddEditTaskSheet> {
     final t = widget.task;
     _titleCtrl = TextEditingController(text: t?.title ?? '');
     _notesCtrl = TextEditingController(text: t?.notes ?? '');
-    _dueDate = t?.dueDate ?? DateTime.now();
+    _dueDate = t?.dueDate ?? widget.initialDate ?? DateTime.now();
     _dueTime = t?.dueTime != null
         ? du.parseTime(t!.dueTime!)
         : du.defaultDueTime;
@@ -114,6 +117,8 @@ class _AddEditTaskSheetState extends ConsumerState<AddEditTaskSheet> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final dateStyle = ref.watch(dateFormatNotifierProvider);
+    final timeStyle = ref.watch(timeFormatNotifierProvider);
 
     String sheetTitle;
     if (_isNew) {
@@ -167,7 +172,7 @@ class _AddEditTaskSheetState extends ConsumerState<AddEditTaskSheet> {
                   child: OutlinedButton.icon(
                     onPressed: _pickDate,
                     icon: const Icon(Icons.calendar_today, size: 16),
-                    label: Text(du.formatDate(_dueDate), style: const TextStyle(fontSize: 13)),
+                    label: Text(du.formatDateAs(_dueDate, dateStyle), style: const TextStyle(fontSize: 13)),
                     style: OutlinedButton.styleFrom(
                       alignment: Alignment.centerLeft,
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
@@ -180,7 +185,7 @@ class _AddEditTaskSheetState extends ConsumerState<AddEditTaskSheet> {
                   child: OutlinedButton.icon(
                     onPressed: _pickTime,
                     icon: const Icon(Icons.access_time, size: 16),
-                    label: Text(du.formatTime(_dueTime), style: const TextStyle(fontSize: 13)),
+                    label: Text(du.formatTimeAs(_dueTime, timeStyle), style: const TextStyle(fontSize: 13)),
                     style: OutlinedButton.styleFrom(
                       alignment: Alignment.centerLeft,
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
@@ -195,7 +200,7 @@ class _AddEditTaskSheetState extends ConsumerState<AddEditTaskSheet> {
             OutlinedButton.icon(
               onPressed: _pickTime,
               icon: const Icon(Icons.access_time, size: 16),
-              label: Text(du.formatTime(_dueTime), style: const TextStyle(fontSize: 13)),
+              label: Text(du.formatTimeAs(_dueTime, timeStyle), style: const TextStyle(fontSize: 13)),
               style: OutlinedButton.styleFrom(
                 alignment: Alignment.centerLeft,
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),

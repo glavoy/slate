@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/tracker_metric.dart';
 import '../providers/supabase_provider.dart';
-import '../providers/theme_provider.dart';
 import '../providers/tracker_providers.dart';
 import '../widgets/sparkline.dart';
 import 'tracker_metric_screen.dart';
@@ -75,7 +74,6 @@ class TrackerScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final themeMode = ref.watch(themeNotifierProvider);
     final asyncMetrics = ref.watch(trackerMetricsProvider);
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
@@ -87,14 +85,6 @@ class TrackerScreen extends ConsumerWidget {
           style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.2),
         ),
         actions: [
-          IconButton(
-            icon: Icon(themeMode == ThemeMode.dark
-                ? Icons.light_mode_outlined
-                : Icons.dark_mode_outlined),
-            tooltip: 'Toggle theme',
-            onPressed: () =>
-                ref.read(themeNotifierProvider.notifier).toggle(),
-          ),
           IconButton(
             icon: const Icon(Icons.logout),
             tooltip: 'Sign out',

@@ -6,7 +6,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/journal_entry.dart';
 import '../providers/journal_providers.dart';
 import '../providers/supabase_provider.dart';
-import '../providers/theme_provider.dart';
 import '../utils/date_utils.dart' as du;
 
 class JournalScreen extends ConsumerStatefulWidget {
@@ -53,7 +52,6 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final themeMode = ref.watch(themeNotifierProvider);
     final asyncEntries = ref.watch(journalEntriesProvider);
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
@@ -65,14 +63,6 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
           style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.2),
         ),
         actions: [
-          IconButton(
-            icon: Icon(themeMode == ThemeMode.dark
-                ? Icons.light_mode_outlined
-                : Icons.dark_mode_outlined),
-            tooltip: 'Toggle theme',
-            onPressed: () =>
-                ref.read(themeNotifierProvider.notifier).toggle(),
-          ),
           IconButton(
             icon: const Icon(Icons.logout),
             tooltip: 'Sign out',

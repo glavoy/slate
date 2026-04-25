@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'app.dart';
 import 'env/env.dart';
+import 'providers/settings_providers.dart';
 import 'providers/theme_provider.dart';
 
 void main() async {
@@ -14,7 +15,11 @@ void main() async {
   );
 
   final container = ProviderContainer();
-  await container.read(themeNotifierProvider.notifier).init();
+  await Future.wait([
+    container.read(themeNotifierProvider.notifier).init(),
+    container.read(dateFormatNotifierProvider.notifier).init(),
+    container.read(timeFormatNotifierProvider.notifier).init(),
+  ]);
 
   runApp(
     UncontrolledProviderScope(

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
 import '../models/task.dart';
 import '../models/recurrence.dart';
+import '../providers/settings_providers.dart';
 import '../providers/task_providers.dart';
 import '../utils/date_utils.dart' as du;
 import 'add_edit_task_sheet.dart';
@@ -218,6 +219,7 @@ class _TaskCardState extends ConsumerState<TaskCard> {
     final isMacOS = Theme.of(context).platform == TargetPlatform.macOS;
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final timeStyle = ref.watch(timeFormatNotifierProvider);
 
     return Slidable(
       key: ValueKey(task.id),
@@ -262,7 +264,8 @@ class _TaskCardState extends ConsumerState<TaskCard> {
                     SizedBox(
                       width: 64,
                       child: Text(
-                        du.formatTime(du.parseTime(task.dueTime!)),
+                        du.formatTimeAs(
+                            du.parseTime(task.dueTime!), timeStyle),
                         style: theme.textTheme.bodyMedium?.copyWith(
                           color: colorScheme.onSurface
                               .withValues(alpha: 0.75),
