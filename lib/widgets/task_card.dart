@@ -7,18 +7,27 @@ import '../providers/task_providers.dart';
 import '../utils/date_utils.dart' as du;
 import 'add_edit_task_sheet.dart';
 
-class TaskCard extends ConsumerWidget {
+class TaskCard extends ConsumerStatefulWidget {
   final Task task;
 
   const TaskCard({super.key, required this.task});
 
+  @override
+  ConsumerState<TaskCard> createState() => _TaskCardState();
+}
+
+class _TaskCardState extends ConsumerState<TaskCard> {
+  bool _expanded = false;
+
+  Task get task => widget.task;
   bool get _isRecurring => task.recurrence != RecurrenceType.none;
   bool get _hasSeries => task.seriesId != null;
+  bool get _hasNotes => task.notes != null && task.notes!.isNotEmpty;
 
   // ── Context menu (right-click, macOS) ───────────────────────────────────
 
   Future<void> _showContextMenu(
-      BuildContext context, WidgetRef ref, TapUpDetails details) async {
+      BuildContext context, TapUpDetails details) async {
     final pos = details.globalPosition;
     final rect = RelativeRect.fromLTRB(pos.dx, pos.dy, pos.dx, pos.dy);
 
@@ -61,9 +70,9 @@ class TaskCard extends ConsumerWidget {
       case 'edit_all':
         _openSheet(context, editAllInSeries: true);
       case 'delete_single':
-        await _deleteSingle(context, ref);
+        await _deleteSingle(context);
       case 'delete_all':
-        await _deleteAll(context, ref);
+        await _deleteAll(context);
     }
   }
 
@@ -103,15 +112,15 @@ class TaskCard extends ConsumerWidget {
 
   // ── Swipe delete ─────────────────────────────────────────────────────────
 
-  Future<void> _handleSwipeDelete(BuildContext context, WidgetRef ref) async {
+  Future<void> _handleSwipeDelete(BuildContext context) async {
     if (_isRecurring) {
-      await _deleteSeriesDialog(context, ref);
+      await _deleteSeriesDialog(context);
     } else {
-      await _deleteSingle(context, ref);
+      await _deleteSingle(context);
     }
   }
 
-  Future<void> _deleteSingle(BuildContext context, WidgetRef ref) async {
+  Future<void> _deleteSingle(BuildContext context) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -135,7 +144,7 @@ class TaskCard extends ConsumerWidget {
     }
   }
 
-  Future<void> _deleteAll(BuildContext context, WidgetRef ref) async {
+  Future<void> _deleteAll(BuildContext context) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -160,7 +169,7 @@ class TaskCard extends ConsumerWidget {
     }
   }
 
-  Future<void> _deleteSeriesDialog(BuildContext context, WidgetRef ref) async {
+  Future<void> _deleteSeriesDialog(BuildContext context) async {
     final choice = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -205,16 +214,10 @@ class TaskCard extends ConsumerWidget {
   // ── Build ────────────────────────────────────────────────────────────────
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final overdue = du.isOverdue(task.dueDate, task.dueTime);
+  Widget build(BuildContext context) {
     final isMacOS = Theme.of(context).platform == TargetPlatform.macOS;
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final cardColor = overdue
-        ? (theme.brightness == Brightness.dark
-            ? Colors.red.shade900.withValues(alpha: 0.5)
-            : Colors.red.shade50)
-        : colorScheme.surface;
 
     return Slidable(
       key: ValueKey(task.id),
@@ -223,13 +226,11 @@ class TaskCard extends ConsumerWidget {
         extentRatio: 0.28,
         children: [
           SlidableAction(
-            onPressed: (ctx) => _handleSwipeDelete(ctx, ref),
+            onPressed: (ctx) => _handleSwipeDelete(ctx),
             backgroundColor: Colors.red,
             foregroundColor: Colors.white,
             icon: Icons.delete_outline,
             label: 'Delete',
-            borderRadius:
-                const BorderRadius.horizontal(right: Radius.circular(12)),
           ),
         ],
       ),
@@ -237,90 +238,95 @@ class TaskCard extends ConsumerWidget {
         behavior: HitTestBehavior.opaque,
         onTap: isMacOS ? null : () => _handleTap(context),
         onSecondaryTapUp: isMacOS
-            ? (details) => _showContextMenu(context, ref, details)
+            ? (details) => _showContextMenu(context, details)
             : null,
-        child: Container(
-          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-          decoration: BoxDecoration(
-            color: cardColor,
-            borderRadius: BorderRadius.circular(12),
-            border: Border(
-              left: BorderSide(
-                color: overdue ? Colors.red.shade500 : Colors.transparent,
-                width: 4,
-              ),
-            ),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            child: Row(
-              children: [
-                Checkbox(
-                  value: task.isDone,
-                  shape: const CircleBorder(),
-                  onChanged: (_) =>
-                      ref.read(taskListProvider.notifier).markDone(task),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        task.title,
-                        style: theme.textTheme.bodyLarge?.copyWith(
-                          fontWeight: FontWeight.w600,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+              child: Row(
+                children: [
+                  Checkbox(
+                    value: task.isDone,
+                    shape: const CircleBorder(),
+                    visualDensity: VisualDensity.compact,
+                    materialTapTargetSize:
+                        MaterialTapTargetSize.shrinkWrap,
+                    onChanged: (_) =>
+                        ref.read(taskListProvider.notifier).markDone(task),
+                  ),
+                  const SizedBox(width: 8),
+                  if (task.dueTime != null) ...[
+                    SizedBox(
+                      width: 64,
+                      child: Text(
+                        du.formatTime(du.parseTime(task.dueTime!)),
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: colorScheme.onSurface
+                              .withValues(alpha: 0.75),
                         ),
                       ),
-                      const SizedBox(height: 2),
-                      Row(
-                        children: [
-                          Text(
-                            [
-                              du.formatDate(task.dueDate),
-                              if (task.dueTime != null)
-                                du.formatTime(du.parseTime(task.dueTime!)),
-                            ].join(' · '),
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: overdue
-                                  ? Colors.red.shade400
-                                  : colorScheme.onSurface
-                                      .withValues(alpha: 0.6),
-                            ),
-                          ),
-                          if (task.recurrence != RecurrenceType.none) ...[
-                            const SizedBox(width: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 6, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: colorScheme.primaryContainer,
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: Text(
-                                task.recurrence.label,
-                                style: theme.textTheme.labelSmall?.copyWith(
-                                  color: colorScheme.onPrimaryContainer,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ],
+                    ),
+                    const SizedBox(width: 4),
+                  ],
+                  Expanded(
+                    child: Text(
+                      task.title,
+                      style: theme.textTheme.bodyLarge?.copyWith(
+                        fontWeight: FontWeight.w600,
                       ),
-                    ],
+                    ),
+                  ),
+                  if (task.recurrence != RecurrenceType.none) ...[
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: colorScheme.primaryContainer,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        task.recurrence.label,
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: colorScheme.onPrimaryContainer,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                  ],
+                  if (_hasNotes)
+                    IconButton(
+                      icon: Icon(
+                        _expanded ? Icons.expand_less : Icons.notes,
+                        size: 20,
+                        color: _expanded
+                            ? colorScheme.primary
+                            : colorScheme.onSurface.withValues(alpha: 0.5),
+                      ),
+                      iconSize: 20,
+                      visualDensity: VisualDensity.compact,
+                      padding: const EdgeInsets.all(6),
+                      constraints: const BoxConstraints(),
+                      tooltip: _expanded ? 'Hide note' : 'Show note',
+                      onPressed: () =>
+                          setState(() => _expanded = !_expanded),
+                    ),
+                ],
+              ),
+            ),
+            if (_expanded && _hasNotes)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(56, 0, 16, 8),
+                child: Text(
+                  task.notes!,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: colorScheme.onSurface.withValues(alpha: 0.75),
                   ),
                 ),
-                if (task.notes != null && task.notes!.isNotEmpty)
-                  Icon(Icons.notes,
-                      size: 18,
-                      color: colorScheme.onSurface.withValues(alpha: 0.4)),
-                const SizedBox(width: 4),
-                Icon(Icons.chevron_right,
-                    size: 18,
-                    color: colorScheme.onSurface.withValues(alpha: 0.3)),
-              ],
-            ),
-          ),
+              ),
+          ],
         ),
       ),
     );

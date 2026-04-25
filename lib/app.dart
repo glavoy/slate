@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'providers/auth_provider.dart';
 import 'providers/theme_provider.dart';
+import 'screens/auth_screen.dart';
 import 'screens/main_screen.dart';
 
 class SlateApp extends ConsumerWidget {
@@ -28,7 +30,17 @@ class SlateApp extends ConsumerWidget {
         ),
         useMaterial3: true,
       ),
-      home: const MainScreen(),
+      home: const _AuthGate(),
     );
+  }
+}
+
+class _AuthGate extends ConsumerWidget {
+  const _AuthGate();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final user = ref.watch(currentUserProvider);
+    return user == null ? const AuthScreen() : const MainScreen();
   }
 }

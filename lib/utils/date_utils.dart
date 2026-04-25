@@ -22,15 +22,36 @@ DateTime nextOccurrence(DateTime from, RecurrenceType recurrence) =>
       RecurrenceType.none => from,
     };
 
+const _monthAbbr = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+];
+const _dayAbbr = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const _dayFull = [
+  'Monday', 'Tuesday', 'Wednesday', 'Thursday',
+  'Friday', 'Saturday', 'Sunday',
+];
+
 String formatDate(DateTime date) {
-  const months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-  ];
-  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-  final dayName = days[date.weekday - 1];
-  final month = months[date.month - 1];
-  return '$dayName $month ${date.day}';
+  final dayName = _dayAbbr[date.weekday - 1];
+  final month = _monthAbbr[date.month - 1];
+  final yearSuffix =
+      date.year == DateTime.now().year ? '' : ', ${date.year}';
+  return '$dayName $month ${date.day}$yearSuffix';
+}
+
+String formatDateGroupHeader(DateTime date) {
+  final now = DateTime.now();
+  final today = DateTime(now.year, now.month, now.day);
+  final target = DateTime(date.year, date.month, date.day);
+  final diff = target.difference(today).inDays;
+  if (diff == 0) return 'Today';
+  if (diff == 1) return 'Tomorrow';
+  if (diff == -1) return 'Yesterday';
+
+  final dayName = _dayFull[date.weekday - 1];
+  final month = _monthAbbr[date.month - 1];
+  return '$dayName, ${date.day} $month ${date.year}';
 }
 
 // Parses "HH:MM:SS" or "HH:MM" from PostgreSQL time column

@@ -1,0 +1,37 @@
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../models/note.dart';
+
+class NoteRepository {
+  NoteRepository(this._client);
+  final SupabaseClient _client;
+
+  Future<List<Note>> fetchAll() async {
+    final rows = await _client
+        .from('notes')
+        .select()
+        .order('updated_at', ascending: false);
+    return rows.map<Note>((r) => Note.fromJson(r)).toList();
+  }
+
+  Future<Note> create({String title = '', String content = ''}) async {
+    final inserted = await _client
+        .from('notes')
+        .insert({'title': title, 'content': content})
+        .select()
+        .single();
+    return Note.fromJson(inserted);
+  }
+
+  Future<void> update(String id, {String? title, String? content}) async {
+    final patch = <String, dynamic>{
+      'updated_at': DateTime.now().toIso8601String(),
+    };
+    if (title != null) patch['title'] = title;
+    if (content != null) patch['content'] = content;
+    await _client.from('notes').update(patch).eq('id', id);
+  }
+
+  Future<void> delete(String id) async {
+    await _client.from('notes').delete().eq('id', id);
+  }
+}

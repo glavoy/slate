@@ -48,6 +48,7 @@ app.*.map.json
 lib/env/env.dart
 
 # Generated files
+temp/
 *.freezed.dart
 *.g.dart
 
