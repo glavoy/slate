@@ -13,6 +13,7 @@ class Note with _$Note {
     @JsonKey(name: 'user_id') required String userId,
     @Default('') String title,
     @Default('') String content,
+    @Default(false) bool pinned,
     @JsonKey(
       name: 'created_at',
       fromJson: _dateFromJson,

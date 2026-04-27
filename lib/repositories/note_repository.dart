@@ -9,6 +9,7 @@ class NoteRepository {
     final rows = await _client
         .from('notes')
         .select()
+        .order('pinned', ascending: false)
         .order('updated_at', ascending: false);
     return rows.map<Note>((r) => Note.fromJson(r)).toList();
   }
@@ -29,6 +30,10 @@ class NoteRepository {
     if (title != null) patch['title'] = title;
     if (content != null) patch['content'] = content;
     await _client.from('notes').update(patch).eq('id', id);
+  }
+
+  Future<void> setPin(String id, {required bool pinned}) async {
+    await _client.from('notes').update({'pinned': pinned}).eq('id', id);
   }
 
   Future<void> delete(String id) async {

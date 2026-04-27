@@ -43,6 +43,11 @@ class NoteList extends _$NoteList {
     ref.invalidateSelf();
   }
 
+  Future<void> pin(String id, {required bool value}) async {
+    await _repo().setPin(id, pinned: value);
+    ref.invalidateSelf();
+  }
+
   Future<void> delete(String id) async {
     await _repo().delete(id);
     ref.invalidateSelf();

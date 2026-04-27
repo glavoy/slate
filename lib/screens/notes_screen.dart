@@ -4,56 +4,152 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/note.dart';
 import '../providers/note_providers.dart';
 import '../providers/supabase_provider.dart';
+import '../widgets/note_editor_pane.dart';
 import 'note_editor_screen.dart';
 
-class NotesScreen extends ConsumerWidget {
+class NotesScreen extends ConsumerStatefulWidget {
   const NotesScreen({super.key});
 
-  String _relativeDate(DateTime dt) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final target = DateTime(dt.year, dt.month, dt.day);
-    final diff = today.difference(target).inDays;
-    if (diff == 0) {
-      final hour = dt.hour.toString().padLeft(2, '0');
-      final minute = dt.minute.toString().padLeft(2, '0');
-      return '$hour:$minute';
-    }
-    if (diff == 1) return 'Yesterday';
-    if (diff < 7) return '${diff}d ago';
-    const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-    ];
-    final month = months[dt.month - 1];
-    final showYear = dt.year != now.year;
-    return showYear ? '$month ${dt.day}, ${dt.year}' : '$month ${dt.day}';
+  @override
+  ConsumerState<NotesScreen> createState() => _NotesScreenState();
+}
+
+class _NotesScreenState extends ConsumerState<NotesScreen> {
+  final _searchController = TextEditingController();
+  String _searchQuery = '';
+  String? _selectedNoteId;
+  bool _autoFocusTitle = false;
+  bool _isWide = false;
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
-  String _preview(Note note) {
-    final raw = note.content.trim();
-    if (raw.isEmpty) return 'No content';
-    final firstLine = raw.split('\n').first;
-    return firstLine.length > 80
-        ? '${firstLine.substring(0, 80)}…'
-        : firstLine;
+  List<Note> _filtered(List<Note> notes) {
+    if (_searchQuery.isEmpty) return notes;
+    final q = _searchQuery.toLowerCase();
+    return notes
+        .where((n) =>
+            n.title.toLowerCase().contains(q) ||
+            n.content.toLowerCase().contains(q))
+        .toList();
   }
 
-  Future<void> _createAndOpen(BuildContext context, WidgetRef ref) async {
+  Future<void> _createNote(BuildContext context, bool isWide) async {
     final note = await ref.read(noteListProvider.notifier).create();
     if (!context.mounted) return;
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => NoteEditorScreen(noteId: note.id),
-      ),
+    if (isWide) {
+      setState(() {
+        _selectedNoteId = note.id;
+        _autoFocusTitle = true;
+      });
+    } else {
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) =>
+              NoteEditorScreen(noteId: note.id, autoFocusTitle: true),
+        ),
+      );
+    }
+  }
+
+  void _selectNote(BuildContext context, Note note, bool isWide) {
+    if (isWide) {
+      setState(() {
+        _selectedNoteId = note.id;
+        _autoFocusTitle = false;
+      });
+    } else {
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => NoteEditorScreen(noteId: note.id),
+        ),
+      );
+    }
+  }
+
+  Widget _buildNoteList(
+    BuildContext context,
+    List<Note> notes,
+    bool isWide,
+    ThemeData theme,
+    ColorScheme cs,
+  ) {
+    final filtered = _filtered(notes);
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(10, 8, 6, 4),
+          child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _searchController,
+                  onChanged: (v) => setState(() => _searchQuery = v),
+                  style: theme.textTheme.bodyMedium,
+                  decoration: InputDecoration(
+                    hintText: 'Search notes…',
+                    prefixIcon: const Icon(Icons.search, size: 18),
+                    isDense: true,
+                    filled: true,
+                    fillColor: cs.surfaceContainerHigh,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide.none,
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                        vertical: 8, horizontal: 12),
+                  ),
+                ),
+              ),
+              if (isWide)
+                IconButton(
+                  icon: const Icon(Icons.add),
+                  tooltip: 'New note',
+                  onPressed: () => _createNote(context, true),
+                ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: filtered.isEmpty
+              ? Center(
+                  child: Text(
+                    _searchQuery.isEmpty
+                        ? 'No notes yet'
+                        : 'No matching notes',
+                    style: TextStyle(
+                        color: cs.onSurface.withValues(alpha: 0.5),
+                        fontSize: 14),
+                  ),
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  itemCount: filtered.length,
+                  itemBuilder: (_, i) {
+                    final note = filtered[i];
+                    return _NoteListTile(
+                      note: note,
+                      isSelected: isWide && note.id == _selectedNoteId,
+                      onTap: () => _selectNote(context, note, isWide),
+                      onPin: () => ref
+                          .read(noteListProvider.notifier)
+                          .pin(note.id, value: !note.pinned),
+                    );
+                  },
+                ),
+        ),
+      ],
     );
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final asyncNotes = ref.watch(noteListProvider);
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
+    final cs = theme.colorScheme;
+    final asyncNotes = ref.watch(noteListProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -70,90 +166,183 @@ class NotesScreen extends ConsumerWidget {
           ),
         ],
       ),
-      body: asyncNotes.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('Error: $e')),
-        data: (notes) {
-          if (notes.isEmpty) {
-            return const Center(
-              child: Text(
-                'No notes yet — tap + to create one',
-                style: TextStyle(fontSize: 16, color: Colors.grey),
-              ),
-            );
+      floatingActionButton: _isWide
+          ? null
+          : FloatingActionButton(
+              heroTag: 'fab_notes',
+              onPressed: () => _createNote(context, false),
+              child: const Icon(Icons.add),
+            ),
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final isWide = constraints.maxWidth >= 600;
+          if (isWide != _isWide) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) setState(() => _isWide = isWide);
+            });
           }
-          return ListView.builder(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            itemCount: notes.length,
-            itemBuilder: (_, i) {
-              final note = notes[i];
-              final title = note.title.isEmpty ? '(Untitled)' : note.title;
-              return Padding(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 12, vertical: 4),
-                child: Material(
-                  color: theme.brightness == Brightness.dark
-                      ? colorScheme.surfaceContainerHigh
-                      : colorScheme.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(12),
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(12),
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => NoteEditorScreen(noteId: note.id),
-                      ),
+
+          return asyncNotes.when(
+            loading: () => const Center(child: CircularProgressIndicator()),
+            error: (e, _) => Center(child: Text('Error: $e')),
+            data: (notes) {
+              if (isWide) {
+                return Row(
+                  children: [
+                    SizedBox(
+                      width: 280,
+                      child: _buildNoteList(
+                          context, notes, true, theme, cs),
                     ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(14),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  title,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: theme.textTheme.titleMedium
-                                      ?.copyWith(
-                                          fontWeight: FontWeight.bold),
+                    const VerticalDivider(width: 1),
+                    Expanded(
+                      child: _selectedNoteId != null
+                          ? NoteEditorPane(
+                              key: ValueKey(_selectedNoteId),
+                              noteId: _selectedNoteId!,
+                              autoFocusTitle: _autoFocusTitle,
+                              onDelete: () => setState(() {
+                                _selectedNoteId = null;
+                                _autoFocusTitle = false;
+                              }),
+                            )
+                          : Center(
+                              child: Text(
+                                'Select a note',
+                                style: TextStyle(
+                                  color: cs.onSurface.withValues(alpha: 0.4),
+                                  fontSize: 16,
                                 ),
                               ),
-                              const SizedBox(width: 8),
-                              Text(
-                                _relativeDate(note.updatedAt),
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: colorScheme.onSurface
-                                      .withValues(alpha: 0.6),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            _preview(note),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: colorScheme.onSurface
-                                  .withValues(alpha: 0.7),
                             ),
-                          ),
-                        ],
-                      ),
                     ),
-                  ),
-                ),
-              );
+                  ],
+                );
+              }
+
+              return _buildNoteList(context, notes, false, theme, cs);
             },
           );
         },
       ),
-      floatingActionButton: FloatingActionButton(
-        heroTag: 'fab_notes',
-        onPressed: () => _createAndOpen(context, ref),
-        child: const Icon(Icons.add),
+    );
+  }
+}
+
+class _NoteListTile extends StatelessWidget {
+  final Note note;
+  final bool isSelected;
+  final VoidCallback onTap;
+  final VoidCallback onPin;
+
+  const _NoteListTile({
+    required this.note,
+    required this.isSelected,
+    required this.onTap,
+    required this.onPin,
+  });
+
+  String _relativeDate(DateTime dt) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final diff = today.difference(DateTime(dt.year, dt.month, dt.day)).inDays;
+    if (diff == 0) {
+      return '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+    }
+    if (diff == 1) return 'Yesterday';
+    if (diff < 7) return '${diff}d ago';
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    final m = months[dt.month - 1];
+    return dt.year != now.year ? '$m ${dt.day}, ${dt.year}' : '$m ${dt.day}';
+  }
+
+  String _preview(Note note) {
+    final raw = note.content.trim();
+    if (raw.isEmpty) return 'No content';
+    final line = raw.split('\n').first;
+    return line.length > 80 ? '${line.substring(0, 80)}…' : line;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final title = note.title.isEmpty ? '(Untitled)' : note.title;
+    final onSurface = isSelected ? cs.onPrimaryContainer : cs.onSurface;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      child: Material(
+        color: isSelected
+            ? cs.primaryContainer
+            : (theme.brightness == Brightness.dark
+                ? cs.surfaceContainerHigh
+                : cs.surfaceContainerHighest),
+        borderRadius: BorderRadius.circular(10),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.titleSmall?.copyWith(
+                                fontWeight: FontWeight.bold,
+                                color: onSurface,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            _relativeDate(note.updatedAt),
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: onSurface.withValues(alpha: 0.6),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        _preview(note),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: onSurface.withValues(alpha: 0.6),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.push_pin),
+                  iconSize: 16,
+                  color: note.pinned
+                      ? (isSelected ? cs.onPrimaryContainer : cs.primary)
+                      : onSurface.withValues(alpha: 0.25),
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  tooltip: note.pinned ? 'Unpin' : 'Pin',
+                  onPressed: onPin,
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
