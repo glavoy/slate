@@ -20,7 +20,7 @@ class HomeScreen extends ConsumerStatefulWidget {
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   _TasksView _view = _TasksView.list;
   bool _simpleListExpanded = true;
-  bool _completedExpanded = true;
+  bool _completedExpanded = false;
   DateTime _selectedCalendarDay = DateTime.now();
 
   void _openAdd(BuildContext context) {
@@ -45,7 +45,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         child: Row(
           children: [
             Text(
-              'SIMPLE LIST',
+              'QUICK LIST',
               style: theme.textTheme.labelLarge?.copyWith(
                 color: colorScheme.onSurface.withValues(alpha: 0.6),
                 letterSpacing: 0.8,

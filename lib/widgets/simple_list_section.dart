@@ -81,7 +81,7 @@ class _SimpleListSectionState extends ConsumerState<SimpleListSection> {
       ),
       error: (e, _) => Padding(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-        child: Text('Simple list error: $e'),
+        child: Text('Quick list error: $e'),
       ),
       data: (_) => Padding(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
@@ -123,6 +123,17 @@ class _BulletFormatter extends TextInputFormatter {
       return const TextEditingValue(
         text: _bullet,
         selection: TextSelection.collapsed(offset: _bullet.length),
+      );
+    }
+
+    // User backspaced the trailing space from the first bullet (• → • ); fix
+    // in-place instead of prepending a second bullet symbol.
+    if (newValue.text.startsWith('•') && !newValue.text.startsWith(_bullet)) {
+      final fixed = _bullet + newValue.text.substring(1);
+      final offset = (newValue.selection.baseOffset + 1).clamp(0, fixed.length);
+      return TextEditingValue(
+        text: fixed,
+        selection: TextSelection.collapsed(offset: offset),
       );
     }
 
