@@ -144,15 +144,17 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
     final int newCursor;
 
     if (line.startsWith(_bullet)) {
-      newText = text.substring(0, lineStart) +
+      newText =
+          text.substring(0, lineStart) +
           line.substring(_bullet.length) +
           text.substring(lineEnd);
-      newCursor = (cursor - _bullet.length)
-          .clamp(lineStart, lineStart + line.length - _bullet.length);
+      newCursor = (cursor - _bullet.length).clamp(
+        lineStart,
+        lineStart + line.length - _bullet.length,
+      );
     } else {
-      newText = text.substring(0, lineStart) +
-          _bullet +
-          text.substring(lineStart);
+      newText =
+          text.substring(0, lineStart) + _bullet + text.substring(lineStart);
       newCursor = cursor + _bullet.length;
     }
 
@@ -258,9 +260,8 @@ class _NoteController extends TextEditingController {
     TextStyle? style,
     required bool withComposing,
   }) {
-    final base = style ??
-        Theme.of(context).textTheme.bodyLarge ??
-        const TextStyle();
+    final base =
+        style ?? Theme.of(context).textTheme.bodyLarge ?? const TextStyle();
     final titleStyle = base.copyWith(
       fontWeight: FontWeight.bold,
       fontSize: (base.fontSize ?? 16.0) * 1.3,
@@ -304,9 +305,8 @@ class _NoteBulletFormatter extends TextInputFormatter {
 
     if (prevLine == _bullet) {
       // Empty bullet line — remove bullet on Enter instead of continuing
-      final newText = newValue.text.substring(0, prevLineStart) +
-          '\n' +
-          newValue.text.substring(cursor);
+      final newText =
+          '${newValue.text.substring(0, prevLineStart)}\n${newValue.text.substring(cursor)}';
       return TextEditingValue(
         text: newText,
         selection: TextSelection.collapsed(offset: prevLineStart + 1),

@@ -74,8 +74,9 @@ class _AddEditTaskSheetState extends ConsumerState<AddEditTaskSheet> {
   Future<void> _save() async {
     final title = _titleCtrl.text.trim();
     if (title.isEmpty) return;
-    final notes =
-        _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim();
+    final notes = _notesCtrl.text.trim().isEmpty
+        ? null
+        : _notesCtrl.text.trim();
 
     setState(() => _saving = true);
     try {
@@ -140,7 +141,12 @@ class _AddEditTaskSheetState extends ConsumerState<AddEditTaskSheet> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(sheetTitle, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+          Text(
+            sheetTitle,
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.bold,
+            ),
+          ),
           if (_isEditAll) ...[
             const SizedBox(height: 4),
             Text(
@@ -159,7 +165,10 @@ class _AddEditTaskSheetState extends ConsumerState<AddEditTaskSheet> {
               labelText: 'Title',
               border: OutlineInputBorder(),
               isDense: true,
-              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              contentPadding: EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 10,
+              ),
             ),
             onSubmitted: (_) => _save(),
           ),
@@ -172,10 +181,16 @@ class _AddEditTaskSheetState extends ConsumerState<AddEditTaskSheet> {
                   child: OutlinedButton.icon(
                     onPressed: _pickDate,
                     icon: const Icon(Icons.calendar_today, size: 16),
-                    label: Text(du.formatDateAs(_dueDate, dateStyle), style: const TextStyle(fontSize: 13)),
+                    label: Text(
+                      du.formatDateAs(_dueDate, dateStyle),
+                      style: const TextStyle(fontSize: 13),
+                    ),
                     style: OutlinedButton.styleFrom(
                       alignment: Alignment.centerLeft,
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 10,
+                      ),
                     ),
                   ),
                 ),
@@ -185,10 +200,16 @@ class _AddEditTaskSheetState extends ConsumerState<AddEditTaskSheet> {
                   child: OutlinedButton.icon(
                     onPressed: _pickTime,
                     icon: const Icon(Icons.access_time, size: 16),
-                    label: Text(du.formatTimeAs(_dueTime, timeStyle), style: const TextStyle(fontSize: 13)),
+                    label: Text(
+                      du.formatTimeAs(_dueTime, timeStyle),
+                      style: const TextStyle(fontSize: 13),
+                    ),
                     style: OutlinedButton.styleFrom(
                       alignment: Alignment.centerLeft,
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 10,
+                      ),
                     ),
                   ),
                 ),
@@ -200,10 +221,16 @@ class _AddEditTaskSheetState extends ConsumerState<AddEditTaskSheet> {
             OutlinedButton.icon(
               onPressed: _pickTime,
               icon: const Icon(Icons.access_time, size: 16),
-              label: Text(du.formatTimeAs(_dueTime, timeStyle), style: const TextStyle(fontSize: 13)),
+              label: Text(
+                du.formatTimeAs(_dueTime, timeStyle),
+                style: const TextStyle(fontSize: 13),
+              ),
               style: OutlinedButton.styleFrom(
                 alignment: Alignment.centerLeft,
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 10,
+                ),
               ),
             ),
           ],
@@ -216,18 +243,24 @@ class _AddEditTaskSheetState extends ConsumerState<AddEditTaskSheet> {
               labelText: 'Notes (optional)',
               border: OutlineInputBorder(),
               isDense: true,
-              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              contentPadding: EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 10,
+              ),
               alignLabelWithHint: true,
             ),
           ),
           const SizedBox(height: 10),
           DropdownButtonFormField<RecurrenceType>(
-            value: _recurrence,
+            initialValue: _recurrence,
             decoration: const InputDecoration(
               labelText: 'Repeats',
               border: OutlineInputBorder(),
               isDense: true,
-              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              contentPadding: EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 10,
+              ),
             ),
             items: RecurrenceType.values
                 .map((r) => DropdownMenuItem(value: r, child: Text(r.label)))

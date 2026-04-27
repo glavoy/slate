@@ -1,8 +1,8 @@
 import 'package:riverpod_annotation/riverpod_annotation.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/note.dart';
 import '../repositories/note_repository.dart';
+import '../sync/sync_service.dart';
 import 'supabase_provider.dart';
 
 part 'note_providers.g.dart';
@@ -13,19 +13,11 @@ class NoteList extends _$NoteList {
 
   @override
   Future<List<Note>> build() async {
-    final client = ref.watch(supabaseClientProvider);
-
-    final channel = client
-        .channel('public:notes:active')
-        .onPostgresChanges(
-          event: PostgresChangeEvent.all,
-          schema: 'public',
-          table: 'notes',
-          callback: (_) => ref.invalidateSelf(),
-        )
-        .subscribe();
-
-    ref.onDispose(channel.unsubscribe);
+    ref.watch(supabaseClientProvider);
+    final syncSubscription = SyncService.instance.changes.listen(
+      (_) => ref.invalidateSelf(),
+    );
+    ref.onDispose(syncSubscription.cancel);
     return _repo().fetchAll();
   }
 
@@ -59,19 +51,11 @@ class DeletedNoteList extends _$DeletedNoteList {
 
   @override
   Future<List<Note>> build() async {
-    final client = ref.watch(supabaseClientProvider);
-
-    final channel = client
-        .channel('public:notes:trash')
-        .onPostgresChanges(
-          event: PostgresChangeEvent.all,
-          schema: 'public',
-          table: 'notes',
-          callback: (_) => ref.invalidateSelf(),
-        )
-        .subscribe();
-
-    ref.onDispose(channel.unsubscribe);
+    ref.watch(supabaseClientProvider);
+    final syncSubscription = SyncService.instance.changes.listen(
+      (_) => ref.invalidateSelf(),
+    );
+    ref.onDispose(syncSubscription.cancel);
     return _repo().fetchDeleted();
   }
 

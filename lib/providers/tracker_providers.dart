@@ -1,9 +1,9 @@
 import 'package:riverpod_annotation/riverpod_annotation.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/tracker_metric.dart';
 import '../models/tracker_entry.dart';
 import '../repositories/tracker_repository.dart';
+import '../sync/sync_service.dart';
 import 'supabase_provider.dart';
 
 part 'tracker_providers.g.dart';
@@ -15,27 +15,16 @@ class TrackerMetrics extends _$TrackerMetrics {
 
   @override
   Future<List<TrackerMetric>> build() async {
-    final client = ref.watch(supabaseClientProvider);
-
-    final channel = client
-        .channel('public:tracker_metrics')
-        .onPostgresChanges(
-          event: PostgresChangeEvent.all,
-          schema: 'public',
-          table: 'tracker_metrics',
-          callback: (_) {
-            ref.invalidateSelf();
-          },
-        )
-        .subscribe();
-
-    ref.onDispose(channel.unsubscribe);
+    ref.watch(supabaseClientProvider);
+    final syncSubscription = SyncService.instance.changes.listen(
+      (_) => ref.invalidateSelf(),
+    );
+    ref.onDispose(syncSubscription.cancel);
 
     return _repo().fetchMetrics();
   }
 
-  Future<TrackerMetric> create(
-      {required String name, String? unit}) async {
+  Future<TrackerMetric> create({required String name, String? unit}) async {
     final m = await _repo().createMetric(name: name, unit: unit);
     ref.invalidateSelf();
     return m;
@@ -54,21 +43,11 @@ class TrackerEntries extends _$TrackerEntries {
 
   @override
   Future<List<TrackerEntry>> build(String metricId) async {
-    final client = ref.watch(supabaseClientProvider);
-
-    final channel = client
-        .channel('public:tracker_entries:$metricId')
-        .onPostgresChanges(
-          event: PostgresChangeEvent.all,
-          schema: 'public',
-          table: 'tracker_entries',
-          callback: (_) {
-            ref.invalidateSelf();
-          },
-        )
-        .subscribe();
-
-    ref.onDispose(channel.unsubscribe);
+    ref.watch(supabaseClientProvider);
+    final syncSubscription = SyncService.instance.changes.listen(
+      (_) => ref.invalidateSelf(),
+    );
+    ref.onDispose(syncSubscription.cancel);
 
     return _repo().fetchEntries(metricId);
   }

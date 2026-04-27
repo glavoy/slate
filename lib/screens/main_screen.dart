@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/supabase_provider.dart';
+import '../sync/sync_service.dart';
 import 'home_screen.dart';
 import 'journal_screen.dart';
 import 'notes_screen.dart';
@@ -18,6 +19,12 @@ class MainScreen extends ConsumerStatefulWidget {
 class _MainScreenState extends ConsumerState<MainScreen> {
   int _index = 0;
 
+  @override
+  void initState() {
+    super.initState();
+    SyncService.instance.syncSoon();
+  }
+
   // Last index is Settings — rendered specially on macOS (rail trailing slot)
   // and as the rightmost item on mobile NavigationBar.
   static const _destinations = <_Destination>[
@@ -31,18 +38,19 @@ class _MainScreenState extends ConsumerState<MainScreen> {
   static const _settingsIndex = 4;
 
   Widget _screenAt(int i) => switch (i) {
-        0 => const HomeScreen(),
-        1 => const NotesScreen(),
-        2 => const JournalScreen(),
-        3 => const TrackerScreen(),
-        4 => const SettingsScreen(),
-        _ => const HomeScreen(),
-      };
+    0 => const HomeScreen(),
+    1 => const NotesScreen(),
+    2 => const JournalScreen(),
+    3 => const TrackerScreen(),
+    4 => const SettingsScreen(),
+    _ => const HomeScreen(),
+  };
 
   @override
   Widget build(BuildContext context) {
     final platform = Theme.of(context).platform;
-    final useRail = platform == TargetPlatform.macOS ||
+    final useRail =
+        platform == TargetPlatform.macOS ||
         platform == TargetPlatform.windows ||
         platform == TargetPlatform.linux;
 
@@ -52,11 +60,12 @@ class _MainScreenState extends ConsumerState<MainScreen> {
     );
 
     if (useRail) {
-      final mainDestinations =
-          _destinations.sublist(0, _destinations.length - 1);
+      final mainDestinations = _destinations.sublist(
+        0,
+        _destinations.length - 1,
+      );
       final settings = _destinations[_settingsIndex];
-      final railSelectedIndex =
-          _index == _settingsIndex ? null : _index;
+      final railSelectedIndex = _index == _settingsIndex ? null : _index;
 
       return Scaffold(
         body: Row(
@@ -82,10 +91,8 @@ class _MainScreenState extends ConsumerState<MainScreen> {
                       IconButton(
                         icon: const Icon(Icons.logout),
                         tooltip: 'Sign out',
-                        onPressed: () => ref
-                            .read(supabaseClientProvider)
-                            .auth
-                            .signOut(),
+                        onPressed: () =>
+                            ref.read(supabaseClientProvider).auth.signOut(),
                       ),
                       Padding(
                         padding: const EdgeInsets.only(bottom: 12),

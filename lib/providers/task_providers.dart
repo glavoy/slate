@@ -2,10 +2,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/task.dart';
 import '../models/recurrence.dart';
 import '../repositories/task_repository.dart';
+import '../sync/sync_service.dart';
 import '../utils/date_utils.dart';
 import 'supabase_provider.dart';
 
@@ -21,20 +21,11 @@ class TaskList extends _$TaskList {
   Future<List<Task>> build() async {
     final client = ref.watch(supabaseClientProvider);
 
-    final channel = client
-        .channel('public:tasks')
-        .onPostgresChanges(
-          event: PostgresChangeEvent.all,
-          schema: 'public',
-          table: 'tasks',
-          callback: (_) {
-            ref.invalidateSelf();
-            ref.invalidate(completedTaskListProvider);
-          },
-        )
-        .subscribe();
-
-    ref.onDispose(channel.unsubscribe);
+    final syncSubscription = SyncService.instance.changes.listen((_) {
+      ref.invalidateSelf();
+      ref.invalidate(completedTaskListProvider);
+    });
+    ref.onDispose(syncSubscription.cancel);
 
     // Re-evaluate overdue status every minute while the app is running
     final timer = Timer.periodic(const Duration(minutes: 1), (_) {
@@ -119,9 +110,15 @@ class TaskList extends _$TaskList {
 class CompletedTaskList extends _$CompletedTaskList {
   @override
   Future<List<Task>> build() async {
+    final syncSubscription = SyncService.instance.changes.listen((_) {
+      ref.invalidateSelf();
+    });
+    ref.onDispose(syncSubscription.cancel);
+
     final showAll = ref.watch(showAllCompletedProvider);
-    return TaskRepository(ref.watch(supabaseClientProvider))
-        .fetchCompleted(showAll: showAll);
+    return TaskRepository(
+      ref.watch(supabaseClientProvider),
+    ).fetchCompleted(showAll: showAll);
   }
 
   Future<void> undoComplete(Task task) async {

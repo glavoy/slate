@@ -1,8 +1,8 @@
 import 'package:riverpod_annotation/riverpod_annotation.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/journal_entry.dart';
 import '../repositories/journal_repository.dart';
+import '../sync/sync_service.dart';
 import 'supabase_provider.dart';
 
 part 'journal_providers.g.dart';
@@ -14,21 +14,11 @@ class JournalEntries extends _$JournalEntries {
 
   @override
   Future<List<JournalEntry>> build() async {
-    final client = ref.watch(supabaseClientProvider);
-
-    final channel = client
-        .channel('public:journal_entries')
-        .onPostgresChanges(
-          event: PostgresChangeEvent.all,
-          schema: 'public',
-          table: 'journal_entries',
-          callback: (_) {
-            ref.invalidateSelf();
-          },
-        )
-        .subscribe();
-
-    ref.onDispose(channel.unsubscribe);
+    ref.watch(supabaseClientProvider);
+    final syncSubscription = SyncService.instance.changes.listen(
+      (_) => ref.invalidateSelf(),
+    );
+    ref.onDispose(syncSubscription.cancel);
 
     return _repo().fetchAll();
   }
