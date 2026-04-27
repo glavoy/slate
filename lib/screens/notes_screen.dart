@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/note.dart';
 import '../providers/note_providers.dart';
-import '../providers/supabase_provider.dart';
 import '../widgets/note_editor_pane.dart';
 import 'note_editor_screen.dart';
 
@@ -16,6 +15,7 @@ class NotesScreen extends ConsumerStatefulWidget {
 
 class _NotesScreenState extends ConsumerState<NotesScreen> {
   final _searchController = TextEditingController();
+  final _editorController = NoteEditorController();
   String _searchQuery = '';
   String? _selectedNoteId;
   bool _autoFocusTitle = false;
@@ -25,6 +25,17 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
   void dispose() {
     _searchController.dispose();
     super.dispose();
+  }
+
+  // Clear selection when the selected note no longer exists (e.g. deleted on
+  // another device via realtime).
+  void _clearSelectionIfGone(List<Note> notes) {
+    if (_selectedNoteId != null &&
+        notes.every((n) => n.id != _selectedNoteId)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _selectedNoteId = null);
+      });
+    }
   }
 
   List<Note> _filtered(List<Note> notes) {
@@ -158,12 +169,20 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
           style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.2),
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.logout),
-            tooltip: 'Sign out',
-            onPressed: () =>
-                ref.read(supabaseClientProvider).auth.signOut(),
-          ),
+          if (_selectedNoteId != null) ...[
+            IconButton(
+              icon: const Icon(Icons.format_list_bulleted),
+              iconSize: 20,
+              tooltip: 'Toggle bullet',
+              onPressed: _editorController.toggleBullet,
+            ),
+            IconButton(
+              icon: const Icon(Icons.delete_outline),
+              iconSize: 20,
+              tooltip: 'Delete note',
+              onPressed: () => _editorController.confirmDelete(context),
+            ),
+          ],
         ],
       ),
       floatingActionButton: _isWide
@@ -186,6 +205,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
             loading: () => const Center(child: CircularProgressIndicator()),
             error: (e, _) => Center(child: Text('Error: $e')),
             data: (notes) {
+              _clearSelectionIfGone(notes);
               if (isWide) {
                 return Row(
                   children: [
@@ -201,6 +221,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
                               key: ValueKey(_selectedNoteId),
                               noteId: _selectedNoteId!,
                               autoFocusTitle: _autoFocusTitle,
+                              controller: _editorController,
                               onDelete: () => setState(() {
                                 _selectedNoteId = null;
                                 _autoFocusTitle = false;

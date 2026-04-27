@@ -272,14 +272,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           'Tasks',
           style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.2),
         ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout),
-            tooltip: 'Sign out',
-            onPressed: () =>
-                ref.read(supabaseClientProvider).auth.signOut(),
-          ),
-        ],
+        actions: const [],
       ),
       body: Column(
         children: [

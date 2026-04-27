@@ -62,14 +62,7 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
           'Journal',
           style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.2),
         ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout),
-            tooltip: 'Sign out',
-            onPressed: () =>
-                ref.read(supabaseClientProvider).auth.signOut(),
-          ),
-        ],
+        actions: const [],
       ),
       body: asyncEntries.when(
         loading: () => const Center(child: CircularProgressIndicator()),

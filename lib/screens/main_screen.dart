@@ -1,18 +1,21 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../providers/supabase_provider.dart';
 import 'home_screen.dart';
 import 'journal_screen.dart';
 import 'notes_screen.dart';
 import 'settings_screen.dart';
 import 'tracker_screen.dart';
 
-class MainScreen extends StatefulWidget {
+class MainScreen extends ConsumerStatefulWidget {
   const MainScreen({super.key});
 
   @override
-  State<MainScreen> createState() => _MainScreenState();
+  ConsumerState<MainScreen> createState() => _MainScreenState();
 }
 
-class _MainScreenState extends State<MainScreen> {
+class _MainScreenState extends ConsumerState<MainScreen> {
   int _index = 0;
 
   // Last index is Settings — rendered specially on macOS (rail trailing slot)
@@ -49,7 +52,6 @@ class _MainScreenState extends State<MainScreen> {
     );
 
     if (useRail) {
-      // Main destinations exclude Settings; Settings goes in the trailing slot.
       final mainDestinations =
           _destinations.sublist(0, _destinations.length - 1);
       final settings = _destinations[_settingsIndex];
@@ -74,21 +76,34 @@ class _MainScreenState extends State<MainScreen> {
               trailing: Expanded(
                 child: Align(
                   alignment: Alignment.bottomCenter,
-                  child: Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: IconButton(
-                      icon: Icon(
-                        _index == _settingsIndex
-                            ? settings.selectedIcon
-                            : settings.icon,
-                        color: _index == _settingsIndex
-                            ? Theme.of(context).colorScheme.primary
-                            : null,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.logout),
+                        tooltip: 'Sign out',
+                        onPressed: () => ref
+                            .read(supabaseClientProvider)
+                            .auth
+                            .signOut(),
                       ),
-                      tooltip: settings.label,
-                      onPressed: () =>
-                          setState(() => _index = _settingsIndex),
-                    ),
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: IconButton(
+                          icon: Icon(
+                            _index == _settingsIndex
+                                ? settings.selectedIcon
+                                : settings.icon,
+                            color: _index == _settingsIndex
+                                ? Theme.of(context).colorScheme.primary
+                                : null,
+                          ),
+                          tooltip: settings.label,
+                          onPressed: () =>
+                              setState(() => _index = _settingsIndex),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),

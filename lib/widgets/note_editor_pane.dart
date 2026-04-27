@@ -7,16 +7,48 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/note.dart';
 import '../providers/note_providers.dart';
 
+/// Allows a parent AppBar to invoke actions inside the pane without a GlobalKey.
+/// The pane registers its callbacks on init and unregisters on dispose.
+/// A generation counter prevents a newly registered pane from being accidentally
+/// unregistered by the dispose of an outgoing pane when the note selection changes.
+class NoteEditorController {
+  int _generation = 0;
+  VoidCallback? _toggleBulletFn;
+  Future<void> Function(BuildContext)? _deleteFn;
+
+  int _register({
+    required VoidCallback toggleBullet,
+    required Future<void> Function(BuildContext) delete,
+  }) {
+    _toggleBulletFn = toggleBullet;
+    _deleteFn = delete;
+    return ++_generation;
+  }
+
+  void _unregister(int gen) {
+    if (_generation == gen) {
+      _toggleBulletFn = null;
+      _deleteFn = null;
+    }
+  }
+
+  void toggleBullet() => _toggleBulletFn?.call();
+  Future<void> confirmDelete(BuildContext context) =>
+      _deleteFn?.call(context) ?? Future.value();
+}
+
 class NoteEditorPane extends ConsumerStatefulWidget {
   final String noteId;
   final bool autoFocusTitle;
   final VoidCallback? onDelete;
+  final NoteEditorController? controller;
 
   const NoteEditorPane({
     super.key,
     required this.noteId,
     this.autoFocusTitle = false,
     this.onDelete,
+    this.controller,
   });
 
   @override
@@ -30,6 +62,7 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
   String _lastSavedTitle = '';
   String _lastSavedContent = '';
   bool _initialized = false;
+  int _controllerGeneration = 0;
 
   static const _debounceDuration = Duration(milliseconds: 1000);
   static const _bullet = '• ';
@@ -38,25 +71,30 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
   void initState() {
     super.initState();
     _controller = _NoteController();
+    if (widget.controller != null) {
+      _controllerGeneration = widget.controller!._register(
+        toggleBullet: _toggleBullet,
+        delete: _confirmDelete,
+      );
+    }
   }
 
   @override
   void dispose() {
     _debounce?.cancel();
     _flushIfDirty();
+    widget.controller?._unregister(_controllerGeneration);
     _controller.dispose();
     _focusNode.dispose();
     super.dispose();
   }
 
-  // Extract title = everything before the first \n
   String get _title {
     final text = _controller.text;
     final i = text.indexOf('\n');
     return i == -1 ? text : text.substring(0, i);
   }
 
-  // Extract content = everything after the first \n
   String get _content {
     final text = _controller.text;
     final i = text.indexOf('\n');
@@ -93,7 +131,7 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
     if (!sel.isValid) return;
     final cursor = sel.isCollapsed ? sel.baseOffset : sel.start;
 
-    // Bullet toggle is only for body lines (not the title)
+    // Only apply to body lines (after the title's first \n)
     final firstNewline = text.indexOf('\n');
     if (firstNewline == -1 || cursor <= firstNewline) return;
 
@@ -112,8 +150,9 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
       newCursor = (cursor - _bullet.length)
           .clamp(lineStart, lineStart + line.length - _bullet.length);
     } else {
-      newText =
-          text.substring(0, lineStart) + _bullet + text.substring(lineStart);
+      newText = text.substring(0, lineStart) +
+          _bullet +
+          text.substring(lineStart);
       newCursor = cursor + _bullet.length;
     }
 
@@ -184,63 +223,34 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
           }
         }
 
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // Compact action row — bullet + delete, right-aligned
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.format_list_bulleted),
-                  iconSize: 18,
-                  tooltip: 'Toggle bullet',
-                  visualDensity: VisualDensity.compact,
-                  onPressed: _toggleBullet,
-                ),
-                IconButton(
-                  icon: const Icon(Icons.delete_outline),
-                  iconSize: 18,
-                  tooltip: 'Delete note',
-                  visualDensity: VisualDensity.compact,
-                  onPressed: () => _confirmDelete(context),
-                ),
-              ],
+        return TextField(
+          controller: _controller,
+          focusNode: _focusNode,
+          maxLines: null,
+          expands: true,
+          keyboardType: TextInputType.multiline,
+          textAlignVertical: TextAlignVertical.top,
+          style: theme.textTheme.bodyLarge,
+          inputFormatters: [_NoteBulletFormatter()],
+          decoration: InputDecoration(
+            hintText: 'Title',
+            hintStyle: TextStyle(
+              color: cs.onSurface.withValues(alpha: 0.3),
+              fontWeight: FontWeight.bold,
+              fontSize: bodyFontSize * 1.3,
             ),
-            const Divider(height: 1),
-            // Single unified text area — first line renders as bold title
-            Expanded(
-              child: TextField(
-                controller: _controller,
-                focusNode: _focusNode,
-                maxLines: null,
-                expands: true,
-                keyboardType: TextInputType.multiline,
-                textAlignVertical: TextAlignVertical.top,
-                style: theme.textTheme.bodyLarge,
-                inputFormatters: [_NoteBulletFormatter()],
-                decoration: InputDecoration(
-                  hintText: 'Title',
-                  hintStyle: TextStyle(
-                    color: cs.onSurface.withValues(alpha: 0.3),
-                    fontWeight: FontWeight.bold,
-                    fontSize: bodyFontSize * 1.3,
-                  ),
-                  border: InputBorder.none,
-                  isDense: true,
-                  contentPadding: const EdgeInsets.all(16),
-                ),
-                onChanged: (_) => _scheduleSave(),
-              ),
-            ),
-          ],
+            border: InputBorder.none,
+            isDense: true,
+            contentPadding: const EdgeInsets.all(16),
+          ),
+          onChanged: (_) => _scheduleSave(),
         );
       },
     );
   }
 }
 
-// Styles the first line (title) as bold + larger; body lines use base style.
+// Renders the first line (title) bold at 1.3× size; body lines use the base style.
 class _NoteController extends TextEditingController {
   @override
   TextSpan buildTextSpan({
