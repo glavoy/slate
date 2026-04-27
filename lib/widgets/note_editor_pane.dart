@@ -62,6 +62,7 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
   String _lastSavedTitle = '';
   String _lastSavedContent = '';
   bool _initialized = false;
+  bool _autoFocusRequested = false;
   int _controllerGeneration = 0;
 
   static const _debounceDuration = Duration(milliseconds: 1000);
@@ -123,6 +124,18 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
   void _scheduleSave() {
     _debounce?.cancel();
     _debounce = Timer(_debounceDuration, _flushIfDirty);
+  }
+
+  void _requestTitleFocus() {
+    if (!widget.autoFocusTitle || _autoFocusRequested) return;
+    _autoFocusRequested = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _focusNode.requestFocus();
+      _controller.selection = TextSelection.collapsed(
+        offset: _controller.text.length,
+      );
+    });
   }
 
   void _toggleBullet() {
@@ -218,12 +231,8 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
           _lastSavedTitle = note.title;
           _lastSavedContent = note.content;
           _initialized = true;
-          if (widget.autoFocusTitle) {
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (mounted) _focusNode.requestFocus();
-            });
-          }
         }
+        _requestTitleFocus();
 
         return TextField(
           controller: _controller,

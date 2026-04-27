@@ -28,40 +28,57 @@ class _TaskCardState extends ConsumerState<TaskCard> {
   // ── Context menu (right-click, macOS) ───────────────────────────────────
 
   Future<void> _showContextMenu(
-      BuildContext context, TapUpDetails details) async {
+    BuildContext context,
+    TapUpDetails details,
+  ) async {
     final pos = details.globalPosition;
     final rect = RelativeRect.fromLTRB(pos.dx, pos.dy, pos.dx, pos.dy);
 
     final items = <PopupMenuEntry<String>>[
       if (_isRecurring) ...[
-        const PopupMenuItem(value: 'edit_single', child: Text('Edit this task only')),
+        const PopupMenuItem(
+          value: 'edit_single',
+          child: Text('Edit this task only'),
+        ),
         if (_hasSeries)
-          const PopupMenuItem(value: 'edit_all', child: Text('Edit all remaining')),
+          const PopupMenuItem(
+            value: 'edit_all',
+            child: Text('Edit all remaining'),
+          ),
       ] else
         const PopupMenuItem(value: 'edit_single', child: Text('Edit task')),
       const PopupMenuDivider(),
       if (_isRecurring) ...[
         PopupMenuItem(
           value: 'delete_single',
-          child: Text('Delete this task only',
-              style: TextStyle(color: Colors.red.shade400)),
+          child: Text(
+            'Delete this task only',
+            style: TextStyle(color: Colors.red.shade400),
+          ),
         ),
         if (_hasSeries)
           PopupMenuItem(
             value: 'delete_all',
-            child: Text('Delete all remaining',
-                style: TextStyle(color: Colors.red.shade400)),
+            child: Text(
+              'Delete all remaining',
+              style: TextStyle(color: Colors.red.shade400),
+            ),
           ),
       ] else
         PopupMenuItem(
           value: 'delete_single',
-          child: Text('Delete task',
-              style: TextStyle(color: Colors.red.shade400)),
+          child: Text(
+            'Delete task',
+            style: TextStyle(color: Colors.red.shade400),
+          ),
         ),
     ];
 
-    final choice =
-        await showMenu<String>(context: context, position: rect, items: items);
+    final choice = await showMenu<String>(
+      context: context,
+      position: rect,
+      items: items,
+    );
 
     if (!context.mounted) return;
 
@@ -89,7 +106,8 @@ class _TaskCardState extends ConsumerState<TaskCard> {
       builder: (ctx) => AlertDialog(
         title: const Text('Edit recurring task'),
         content: const Text(
-            'Edit just this task, or all remaining tasks in the series?'),
+          'Edit just this task, or all remaining tasks in the series?',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(null),
@@ -151,7 +169,8 @@ class _TaskCardState extends ConsumerState<TaskCard> {
       builder: (ctx) => AlertDialog(
         title: const Text('Delete all remaining?'),
         content: Text(
-            'All remaining "${task.title}" tasks in this series will be permanently deleted.'),
+          'All remaining "${task.title}" tasks in this series will be permanently deleted.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
@@ -176,7 +195,8 @@ class _TaskCardState extends ConsumerState<TaskCard> {
       builder: (ctx) => AlertDialog(
         title: const Text('Delete recurring task?'),
         content: const Text(
-            'Delete just this task, or all remaining tasks in the series?'),
+          'Delete just this task, or all remaining tasks in the series?',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(null),
@@ -220,6 +240,14 @@ class _TaskCardState extends ConsumerState<TaskCard> {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final timeStyle = ref.watch(timeFormatNotifierProvider);
+    final taskTitleStyle = theme.textTheme.bodyMedium?.copyWith(
+      fontWeight: FontWeight.w600,
+      fontSize: 13,
+    );
+    final taskMetaStyle = theme.textTheme.bodySmall?.copyWith(
+      fontSize: 12,
+      color: colorScheme.onSurface.withValues(alpha: 0.75),
+    );
 
     return Slidable(
       key: ValueKey(task.id),
@@ -246,16 +274,14 @@ class _TaskCardState extends ConsumerState<TaskCard> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Padding(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
               child: Row(
                 children: [
                   Checkbox(
                     value: task.isDone,
                     shape: const CircleBorder(),
                     visualDensity: VisualDensity.compact,
-                    materialTapTargetSize:
-                        MaterialTapTargetSize.shrinkWrap,
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                     onChanged: (_) =>
                         ref.read(taskListProvider.notifier).markDone(task),
                   ),
@@ -264,28 +290,19 @@ class _TaskCardState extends ConsumerState<TaskCard> {
                     SizedBox(
                       width: 64,
                       child: Text(
-                        du.formatTimeAs(
-                            du.parseTime(task.dueTime!), timeStyle),
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: colorScheme.onSurface
-                              .withValues(alpha: 0.75),
-                        ),
+                        du.formatTimeAs(du.parseTime(task.dueTime!), timeStyle),
+                        style: taskMetaStyle,
                       ),
                     ),
                     const SizedBox(width: 4),
                   ],
-                  Expanded(
-                    child: Text(
-                      task.title,
-                      style: theme.textTheme.bodyLarge?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
+                  Expanded(child: Text(task.title, style: taskTitleStyle)),
                   if (task.recurrence != RecurrenceType.none) ...[
                     Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 6, vertical: 2),
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
                       decoration: BoxDecoration(
                         color: colorScheme.primaryContainer,
                         borderRadius: BorderRadius.circular(4),
@@ -313,8 +330,7 @@ class _TaskCardState extends ConsumerState<TaskCard> {
                       padding: const EdgeInsets.all(6),
                       constraints: const BoxConstraints(),
                       tooltip: _expanded ? 'Hide note' : 'Show note',
-                      onPressed: () =>
-                          setState(() => _expanded = !_expanded),
+                      onPressed: () => setState(() => _expanded = !_expanded),
                     ),
                 ],
               ),
@@ -324,7 +340,8 @@ class _TaskCardState extends ConsumerState<TaskCard> {
                 padding: const EdgeInsets.fromLTRB(56, 0, 16, 8),
                 child: Text(
                   task.notes!,
-                  style: theme.textTheme.bodyMedium?.copyWith(
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    fontSize: 12,
                     color: colorScheme.onSurface.withValues(alpha: 0.75),
                   ),
                 ),

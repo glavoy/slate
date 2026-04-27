@@ -96,7 +96,7 @@ class _SimpleListSectionState extends ConsumerState<SimpleListSection> {
                 keyboardType: TextInputType.multiline,
                 textInputAction: TextInputAction.newline,
                 inputFormatters: [_bulletFormatter],
-                style: theme.textTheme.bodyLarge,
+                style: theme.textTheme.bodyMedium?.copyWith(fontSize: 14),
                 decoration: const InputDecoration(
                   border: InputBorder.none,
                   isDense: true,
@@ -154,13 +154,10 @@ class _BulletFormatter extends TextInputFormatter {
       if (cursor > 0 && newValue.text[cursor - 1] == '\n') {
         final after = newValue.text.substring(cursor);
         if (!after.startsWith(_bullet)) {
-          final updated =
-              newValue.text.substring(0, cursor) + _bullet + after;
+          final updated = newValue.text.substring(0, cursor) + _bullet + after;
           return TextEditingValue(
             text: updated,
-            selection: TextSelection.collapsed(
-              offset: cursor + _bullet.length,
-            ),
+            selection: TextSelection.collapsed(offset: cursor + _bullet.length),
           );
         }
       }

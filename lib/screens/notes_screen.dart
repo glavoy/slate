@@ -42,9 +42,11 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
     if (_searchQuery.isEmpty) return notes;
     final q = _searchQuery.toLowerCase();
     return notes
-        .where((n) =>
-            n.title.toLowerCase().contains(q) ||
-            n.content.toLowerCase().contains(q))
+        .where(
+          (n) =>
+              n.title.toLowerCase().contains(q) ||
+              n.content.toLowerCase().contains(q),
+        )
         .toList();
   }
 
@@ -74,11 +76,45 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
       });
     } else {
       Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => NoteEditorScreen(noteId: note.id),
-        ),
+        MaterialPageRoute(builder: (_) => NoteEditorScreen(noteId: note.id)),
       );
     }
+  }
+
+  Future<void> _deleteNoteWithUndo(BuildContext context, Note note) async {
+    await ref.read(noteListProvider.notifier).delete(note.id);
+    if (!context.mounted) return;
+    final theme = Theme.of(context);
+
+    if (_selectedNoteId == note.id) {
+      setState(() {
+        _selectedNoteId = null;
+        _autoFocusTitle = false;
+      });
+    }
+
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
+      SnackBar(
+        duration: const Duration(seconds: 5),
+        content: Row(
+          children: [
+            const Expanded(child: Text('Note moved to trash')),
+            TextButton(
+              style: TextButton.styleFrom(
+                foregroundColor: theme.colorScheme.inversePrimary,
+              ),
+              onPressed: () {
+                messenger.hideCurrentSnackBar();
+                ref.read(deletedNoteListProvider.notifier).restore(note.id);
+              },
+              child: const Text('Undo'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _buildNoteList(
@@ -111,7 +147,9 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
                       borderSide: BorderSide.none,
                     ),
                     contentPadding: const EdgeInsets.symmetric(
-                        vertical: 8, horizontal: 12),
+                      vertical: 8,
+                      horizontal: 12,
+                    ),
                   ),
                 ),
               ),
@@ -128,12 +166,11 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
           child: filtered.isEmpty
               ? Center(
                   child: Text(
-                    _searchQuery.isEmpty
-                        ? 'No notes yet'
-                        : 'No matching notes',
+                    _searchQuery.isEmpty ? 'No notes yet' : 'No matching notes',
                     style: TextStyle(
-                        color: cs.onSurface.withValues(alpha: 0.5),
-                        fontSize: 14),
+                      color: cs.onSurface.withValues(alpha: 0.5),
+                      fontSize: 14,
+                    ),
                   ),
                 )
               : ListView.builder(
@@ -148,9 +185,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
                       onPin: () => ref
                           .read(noteListProvider.notifier)
                           .pin(note.id, value: !note.pinned),
-                      onDelete: () => ref
-                          .read(noteListProvider.notifier)
-                          .delete(note.id),
+                      onDelete: () => _deleteNoteWithUndo(context, note),
                     );
                   },
                 ),
@@ -177,9 +212,9 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
             icon: const Icon(Icons.delete_sweep_outlined),
             iconSize: 20,
             tooltip: 'Trash',
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const _TrashScreen()),
-            ),
+            onPressed: () => Navigator.of(
+              context,
+            ).push(MaterialPageRoute(builder: (_) => const _TrashScreen())),
           ),
           if (_selectedNoteId != null)
             IconButton(
@@ -216,8 +251,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
                   children: [
                     SizedBox(
                       width: 280,
-                      child: _buildNoteList(
-                          context, notes, true, theme, cs),
+                      child: _buildNoteList(context, notes, true, theme, cs),
                     ),
                     const VerticalDivider(width: 1),
                     Expanded(
@@ -280,8 +314,18 @@ class _NoteListTile extends StatelessWidget {
     if (diff == 1) return 'Yesterday';
     if (diff < 7) return '${diff}d ago';
     const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ];
     final m = months[dt.month - 1];
     return dt.year != now.year ? '$m ${dt.day}, ${dt.year}' : '$m ${dt.day}';
@@ -307,8 +351,8 @@ class _NoteListTile extends StatelessWidget {
         color: isSelected
             ? cs.primaryContainer
             : (theme.brightness == Brightness.dark
-                ? cs.surfaceContainerHigh
-                : cs.surfaceContainerHighest),
+                  ? cs.surfaceContainerHigh
+                  : cs.surfaceContainerHighest),
         borderRadius: BorderRadius.circular(10),
         child: InkWell(
           borderRadius: BorderRadius.circular(10),
@@ -375,7 +419,6 @@ class _NoteListTile extends StatelessWidget {
                   padding: EdgeInsets.zero,
                   tooltip: 'Delete',
                   onPressed: onDelete,
-
                 ),
               ],
             ),
@@ -438,17 +481,27 @@ class _TrashNoteTile extends ConsumerWidget {
     if (diff.inHours < 24) return '${diff.inHours}h ago';
     if (diff.inDays < 7) return '${diff.inDays}d ago';
     const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ];
     final m = months[dt.month - 1];
-    return dt.year != now.year
-        ? '$m ${dt.day}, ${dt.year}'
-        : '$m ${dt.day}';
+    return dt.year != now.year ? '$m ${dt.day}, ${dt.year}' : '$m ${dt.day}';
   }
 
   Future<void> _confirmPermanentDelete(
-      BuildContext context, WidgetRef ref) async {
+    BuildContext context,
+    WidgetRef ref,
+  ) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -500,8 +553,9 @@ class _TrashNoteTile extends ConsumerWidget {
                       title,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.titleSmall
-                          ?.copyWith(fontWeight: FontWeight.bold),
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                     const SizedBox(height: 2),
                     Text(
@@ -517,9 +571,8 @@ class _TrashNoteTile extends ConsumerWidget {
                 icon: const Icon(Icons.restore),
                 iconSize: 20,
                 tooltip: 'Restore',
-                onPressed: () => ref
-                    .read(deletedNoteListProvider.notifier)
-                    .restore(note.id),
+                onPressed: () =>
+                    ref.read(deletedNoteListProvider.notifier).restore(note.id),
               ),
               IconButton(
                 icon: const Icon(Icons.delete_forever_outlined),
