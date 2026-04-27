@@ -168,7 +168,7 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Delete note?'),
-        content: const Text('This note will be permanently deleted.'),
+        content: const Text('This note will be moved to Trash.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),

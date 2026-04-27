@@ -148,6 +148,9 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
                       onPin: () => ref
                           .read(noteListProvider.notifier)
                           .pin(note.id, value: !note.pinned),
+                      onDelete: () => ref
+                          .read(noteListProvider.notifier)
+                          .delete(note.id),
                     );
                   },
                 ),
@@ -177,20 +180,13 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
               MaterialPageRoute(builder: (_) => const _TrashScreen()),
             ),
           ),
-          if (_selectedNoteId != null) ...[
+          if (_selectedNoteId != null)
             IconButton(
               icon: const Icon(Icons.format_list_bulleted),
               iconSize: 20,
               tooltip: 'Toggle bullet',
               onPressed: _editorController.toggleBullet,
             ),
-            IconButton(
-              icon: const Icon(Icons.delete_outline),
-              iconSize: 20,
-              tooltip: 'Delete note',
-              onPressed: () => _editorController.confirmDelete(context),
-            ),
-          ],
         ],
       ),
       floatingActionButton: _isWide
@@ -263,12 +259,14 @@ class _NoteListTile extends StatelessWidget {
   final bool isSelected;
   final VoidCallback onTap;
   final VoidCallback onPin;
+  final VoidCallback onDelete;
 
   const _NoteListTile({
     required this.note,
     required this.isSelected,
     required this.onTap,
     required this.onPin,
+    required this.onDelete,
   });
 
   String _relativeDate(DateTime dt) {
@@ -367,6 +365,15 @@ class _NoteListTile extends StatelessWidget {
                   padding: EdgeInsets.zero,
                   tooltip: note.pinned ? 'Unpin' : 'Pin',
                   onPressed: onPin,
+                ),
+                IconButton(
+                  icon: const Icon(Icons.delete_outline),
+                  iconSize: 16,
+                  color: onSurface.withValues(alpha: 0.3),
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  tooltip: 'Delete',
+                  onPressed: onDelete,
 
                 ),
               ],
@@ -444,8 +451,8 @@ class _TrashNoteTile extends ConsumerWidget {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Delete permanently?'),
-        content: const Text('This note will be gone forever.'),
+        title: const Text('Delete forever?'),
+        content: const Text('This note will be gone and cannot be recovered.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
