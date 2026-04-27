@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../providers/supabase_provider.dart';
 import '../providers/task_providers.dart';
 import '../widgets/add_edit_task_sheet.dart';
 import '../widgets/calendar_view.dart';
@@ -228,31 +227,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
-  Widget _buildViewToggle() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-      child: SegmentedButton<_TasksView>(
-        segments: const [
-          ButtonSegment(
-            value: _TasksView.list,
-            label: Text('List'),
-            icon: Icon(Icons.view_list_outlined, size: 16),
-          ),
-          ButtonSegment(
-            value: _TasksView.calendar,
-            label: Text('Calendar'),
-            icon: Icon(Icons.calendar_month_outlined, size: 16),
-          ),
-        ],
-        selected: {_view},
-        onSelectionChanged: (s) => setState(() => _view = s.first),
-        style: const ButtonStyle(
-          visualDensity: VisualDensity.compact,
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -268,15 +242,38 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     return Scaffold(
       appBar: AppBar(
+        centerTitle: false,
         title: const Text(
           'Tasks',
           style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.2),
         ),
-        actions: const [],
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: SegmentedButton<_TasksView>(
+              segments: const [
+                ButtonSegment(
+                  value: _TasksView.list,
+                  label: Text('List'),
+                  icon: Icon(Icons.view_list_outlined, size: 16),
+                ),
+                ButtonSegment(
+                  value: _TasksView.calendar,
+                  label: Text('Calendar'),
+                  icon: Icon(Icons.calendar_month_outlined, size: 16),
+                ),
+              ],
+              selected: {_view},
+              onSelectionChanged: (s) => setState(() => _view = s.first),
+              style: const ButtonStyle(
+                visualDensity: VisualDensity.compact,
+              ),
+            ),
+          ),
+        ],
       ),
       body: Column(
         children: [
-          _buildViewToggle(),
           _buildSimpleListSection(theme, colorScheme),
           Expanded(child: body),
         ],

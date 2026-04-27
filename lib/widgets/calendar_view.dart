@@ -152,7 +152,7 @@ class _CalendarViewState extends ConsumerState<CalendarView> {
 
         const Divider(height: 1),
 
-        // Tasks for selected day, styled like list view's DateGroupCard
+        // Tasks for selected day — one date header, each task its own card
         Expanded(
           child: selectedEntries.isEmpty
               ? Center(
@@ -163,34 +163,42 @@ class _CalendarViewState extends ConsumerState<CalendarView> {
                   ),
                 )
               : SingleChildScrollView(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: dayCardColor,
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
-                            child: Text(
-                              du.formatDateGroupHeader(_selectedDay),
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                color: headerColor,
-                                fontWeight: FontWeight.w500,
-                              ),
+                  padding: const EdgeInsets.fromLTRB(0, 8, 0, 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      // Single shared date label
+                      FractionallySizedBox(
+                        widthFactor: 0.6,
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(4, 4, 4, 6),
+                          child: Text(
+                            du.formatDateGroupHeader(_selectedDay),
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: headerColor,
+                              fontWeight: FontWeight.w500,
                             ),
                           ),
-                          ...selectedEntries.map((entry) => entry.isProjected
-                              ? _ProjectedTaskTile(entry: entry)
-                              : TaskCard(task: entry.task)),
-                          const SizedBox(height: 6),
-                        ],
+                        ),
                       ),
-                    ),
+                      // One card per task
+                      for (final entry in selectedEntries)
+                        FractionallySizedBox(
+                          widthFactor: 0.6,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 3),
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: dayCardColor,
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              child: entry.isProjected
+                                  ? _ProjectedTaskTile(entry: entry)
+                                  : TaskCard(task: entry.task),
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                 ),
         ),

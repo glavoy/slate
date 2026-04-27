@@ -167,6 +167,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
 
     return Scaffold(
       appBar: AppBar(
+        centerTitle: false,
         title: const Text(
           'Notes',
           style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.2),

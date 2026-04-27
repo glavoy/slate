@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/tracker_metric.dart';
-import '../providers/supabase_provider.dart';
 import '../providers/tracker_providers.dart';
 import '../widgets/sparkline.dart';
 import 'tracker_metric_screen.dart';
@@ -80,6 +79,7 @@ class TrackerScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
+        centerTitle: false,
         title: const Text(
           'Tracker',
           style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.2),

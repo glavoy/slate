@@ -5,7 +5,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/journal_entry.dart';
 import '../providers/journal_providers.dart';
-import '../providers/supabase_provider.dart';
 import '../utils/date_utils.dart' as du;
 
 class JournalScreen extends ConsumerStatefulWidget {
@@ -58,6 +57,7 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
 
     return Scaffold(
       appBar: AppBar(
+        centerTitle: false,
         title: const Text(
           'Journal',
           style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.2),
