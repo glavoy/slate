@@ -28,16 +28,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       isScrollControlled: true,
       useSafeArea: true,
       builder: (_) => AddEditTaskSheet(
-        initialDate:
-            _view == _TasksView.calendar ? _selectedCalendarDay : null,
+        initialDate: _view == _TasksView.calendar ? _selectedCalendarDay : null,
       ),
     );
   }
 
   Widget _buildSimpleListSection(ThemeData theme, ColorScheme colorScheme) {
     final header = InkWell(
-      onTap: () =>
-          setState(() => _simpleListExpanded = !_simpleListExpanded),
+      onTap: () => setState(() => _simpleListExpanded = !_simpleListExpanded),
       child: Container(
         color: theme.scaffoldBackgroundColor,
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
@@ -52,9 +50,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ),
             const SizedBox(width: 4),
             Icon(
-              _simpleListExpanded
-                  ? Icons.expand_more
-                  : Icons.chevron_right,
+              _simpleListExpanded ? Icons.expand_more : Icons.chevron_right,
               size: 18,
               color: colorScheme.onSurface.withValues(alpha: 0.6),
             ),
@@ -102,10 +98,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             if (upcoming.isNotEmpty) ...[
               SliverPersistentHeader(
                 pinned: true,
-                delegate: _SectionHeader(
-                  title: 'UPCOMING',
-                  theme: theme,
-                ),
+                delegate: _SectionHeader(title: 'UPCOMING', theme: theme),
               ),
               TaskSection(tasks: upcoming),
             ],
@@ -134,8 +127,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         children: [
           Expanded(
             child: InkWell(
-              onTap: () => setState(
-                  () => _completedExpanded = !_completedExpanded),
+              onTap: () =>
+                  setState(() => _completedExpanded = !_completedExpanded),
               child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 4),
                 child: Row(
@@ -164,14 +157,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             completedAsync.maybeWhen(
               data: (completed) => completed.isNotEmpty
                   ? TextButton(
-                      onPressed: () => ref
-                          .read(showAllCompletedProvider.notifier)
-                          .state = !showAllCompleted,
+                      onPressed: () =>
+                          ref.read(showAllCompletedProvider.notifier).state =
+                              !showAllCompleted,
                       style: TextButton.styleFrom(
                         visualDensity: VisualDensity.compact,
                       ),
-                      child: Text(
-                          showAllCompleted ? 'Show less' : 'Show more'),
+                      child: Text(showAllCompleted ? 'Show less' : 'Show more'),
                     )
                   : const SizedBox.shrink(),
               orElse: () => const SizedBox.shrink(),
@@ -205,8 +197,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                               child: Text(
                                 'No completed tasks',
                                 style: TextStyle(
-                                  color: colorScheme.onSurface
-                                      .withValues(alpha: 0.35),
+                                  color: colorScheme.onSurface.withValues(
+                                    alpha: 0.35,
+                                  ),
                                 ),
                               ),
                             )
@@ -233,11 +226,24 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final colorScheme = theme.colorScheme;
 
     final body = _view == _TasksView.list
-        ? _buildListView(theme, colorScheme)
-        : CalendarView(
-            initialSelectedDay: _selectedCalendarDay,
-            onDaySelected: (day) =>
-                setState(() => _selectedCalendarDay = day),
+        ? Column(
+            children: [
+              _buildSimpleListSection(theme, colorScheme),
+              Expanded(child: _buildListView(theme, colorScheme)),
+            ],
+          )
+        : SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _buildSimpleListSection(theme, colorScheme),
+                CalendarView(
+                  initialSelectedDay: _selectedCalendarDay,
+                  onDaySelected: (day) =>
+                      setState(() => _selectedCalendarDay = day),
+                ),
+              ],
+            ),
           );
 
     return Scaffold(
@@ -265,19 +271,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               ],
               selected: {_view},
               onSelectionChanged: (s) => setState(() => _view = s.first),
-              style: const ButtonStyle(
-                visualDensity: VisualDensity.compact,
-              ),
+              style: const ButtonStyle(visualDensity: VisualDensity.compact),
             ),
           ),
         ],
       ),
-      body: Column(
-        children: [
-          _buildSimpleListSection(theme, colorScheme),
-          Expanded(child: body),
-        ],
-      ),
+      body: body,
       floatingActionButton: FloatingActionButton(
         heroTag: 'fab_tasks',
         onPressed: () => _openAdd(context),
@@ -292,11 +291,7 @@ class _SectionHeader extends SliverPersistentHeaderDelegate {
   final Color? color;
   final ThemeData theme;
 
-  const _SectionHeader({
-    required this.title,
-    this.color,
-    required this.theme,
-  });
+  const _SectionHeader({required this.title, this.color, required this.theme});
 
   @override
   double get minExtent => 36;
@@ -305,7 +300,10 @@ class _SectionHeader extends SliverPersistentHeaderDelegate {
 
   @override
   Widget build(
-      BuildContext context, double shrinkOffset, bool overlapsContent) {
+    BuildContext context,
+    double shrinkOffset,
+    bool overlapsContent,
+  ) {
     final labelColor =
         color ?? theme.colorScheme.onSurface.withValues(alpha: 0.6);
 

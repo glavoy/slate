@@ -12,11 +12,7 @@ class CalendarView extends ConsumerStatefulWidget {
   final DateTime? initialSelectedDay;
   final ValueChanged<DateTime>? onDaySelected;
 
-  const CalendarView({
-    super.key,
-    this.initialSelectedDay,
-    this.onDaySelected,
-  });
+  const CalendarView({super.key, this.initialSelectedDay, this.onDaySelected});
 
   @override
   ConsumerState<CalendarView> createState() => _CalendarViewState();
@@ -36,7 +32,9 @@ class _CalendarViewState extends ConsumerState<CalendarView> {
   }
 
   List<CalendarEntry> _entriesForDay(
-      Map<DateTime, List<CalendarEntry>> map, DateTime day) {
+    Map<DateTime, List<CalendarEntry>> map,
+    DateTime day,
+  ) {
     final key = DateTime(day.year, day.month, day.day);
     return map[key] ?? [];
   }
@@ -55,6 +53,7 @@ class _CalendarViewState extends ConsumerState<CalendarView> {
     final headerColor = colorScheme.onSurface.withValues(alpha: 0.6);
 
     return Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
         // Weekly / Monthly toggle + Today button
         Padding(
@@ -76,8 +75,7 @@ class _CalendarViewState extends ConsumerState<CalendarView> {
                     ),
                   ],
                   selected: {_format},
-                  onSelectionChanged: (s) =>
-                      setState(() => _format = s.first),
+                  onSelectionChanged: (s) => setState(() => _format = s.first),
                   style: const ButtonStyle(
                     visualDensity: VisualDensity.compact,
                   ),
@@ -95,8 +93,10 @@ class _CalendarViewState extends ConsumerState<CalendarView> {
                 },
                 style: OutlinedButton.styleFrom(
                   visualDensity: VisualDensity.compact,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
                 ),
                 child: const Text('Today'),
               ),
@@ -145,72 +145,81 @@ class _CalendarViewState extends ConsumerState<CalendarView> {
           headerStyle: HeaderStyle(
             formatButtonVisible: false,
             titleCentered: true,
-            titleTextStyle: theme.textTheme.titleMedium!
-                .copyWith(fontWeight: FontWeight.bold),
+            titleTextStyle: theme.textTheme.titleMedium!.copyWith(
+              fontWeight: FontWeight.bold,
+            ),
           ),
         ),
 
         const Divider(height: 1),
 
-        // Tasks for selected day — one date header, each task its own card
-        Expanded(
-          child: selectedEntries.isEmpty
-              ? Center(
-                  child: Text(
-                    'No tasks',
-                    style: TextStyle(
-                        color: colorScheme.onSurface.withValues(alpha: 0.4)),
+        // Tasks for selected day. Calendar mode scrolls as one page, so this
+        // list is intentionally not independently scrollable.
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final useFullWidth = constraints.maxWidth < 700;
+            final taskWidth = useFullWidth
+                ? constraints.maxWidth
+                : constraints.maxWidth * 0.6;
+
+            if (selectedEntries.isEmpty) {
+              return Padding(
+                padding: const EdgeInsets.fromLTRB(16, 28, 16, 32),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: SizedBox(
+                    width: taskWidth,
+                    child: Center(
+                      child: Text(
+                        'No tasks',
+                        style: TextStyle(
+                          color: colorScheme.onSurface.withValues(alpha: 0.4),
+                        ),
+                      ),
+                    ),
                   ),
-                )
-              : SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(0, 8, 0, 16),
+                ),
+              );
+            }
+
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 88),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: SizedBox(
+                  width: taskWidth,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      // Single shared date label
-                      Row(
-                        children: [
-                          Expanded(
-                            flex: 3,
-                            child: Padding(
-                              padding: const EdgeInsets.fromLTRB(16, 4, 4, 6),
-                              child: Text(
-                                du.formatDateGroupHeader(_selectedDay),
-                                style: theme.textTheme.bodyMedium?.copyWith(
-                                  color: headerColor,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(4, 4, 4, 6),
+                        child: Text(
+                          du.formatDateGroupHeader(_selectedDay),
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: headerColor,
+                            fontWeight: FontWeight.w500,
                           ),
-                          const Expanded(flex: 2, child: SizedBox.shrink()),
-                        ],
+                        ),
                       ),
-                      // One card per task
                       for (final entry in selectedEntries)
-                        Row(
-                          children: [
-                            Expanded(
-                              flex: 3,
-                              child: Padding(
-                                padding: const EdgeInsets.fromLTRB(12, 3, 0, 3),
-                                child: Container(
-                                  decoration: BoxDecoration(
-                                    color: dayCardColor,
-                                    borderRadius: BorderRadius.circular(14),
-                                  ),
-                                  child: entry.isProjected
-                                      ? _ProjectedTaskTile(entry: entry)
-                                      : TaskCard(task: entry.task),
-                                ),
-                              ),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 3),
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: dayCardColor,
+                              borderRadius: BorderRadius.circular(14),
                             ),
-                            const Expanded(flex: 2, child: SizedBox.shrink()),
-                          ],
+                            child: entry.isProjected
+                                ? _ProjectedTaskTile(entry: entry)
+                                : TaskCard(task: entry.task),
+                          ),
                         ),
                     ],
                   ),
                 ),
+              ),
+            );
+          },
         ),
       ],
     );
@@ -225,8 +234,7 @@ class _ProjectedTaskTile extends ConsumerStatefulWidget {
   const _ProjectedTaskTile({required this.entry});
 
   @override
-  ConsumerState<_ProjectedTaskTile> createState() =>
-      _ProjectedTaskTileState();
+  ConsumerState<_ProjectedTaskTile> createState() => _ProjectedTaskTileState();
 }
 
 class _ProjectedTaskTileState extends ConsumerState<_ProjectedTaskTile> {
@@ -250,9 +258,11 @@ class _ProjectedTaskTileState extends ConsumerState<_ProjectedTaskTile> {
             children: [
               Padding(
                 padding: const EdgeInsets.all(12),
-                child: Icon(Icons.repeat,
-                    size: 18,
-                    color: colorScheme.onSurface.withValues(alpha: 0.35)),
+                child: Icon(
+                  Icons.repeat,
+                  size: 18,
+                  color: colorScheme.onSurface.withValues(alpha: 0.35),
+                ),
               ),
               const SizedBox(width: 8),
               if (task.dueTime != null) ...[
@@ -268,25 +278,25 @@ class _ProjectedTaskTileState extends ConsumerState<_ProjectedTaskTile> {
               Expanded(
                 child: Text(
                   task.title,
-                  style: theme.textTheme.bodyLarge?.copyWith(
-                    color: dim,
-                  ),
+                  style: theme.textTheme.bodyLarge?.copyWith(color: dim),
                 ),
               ),
               if (task.recurrence != RecurrenceType.none) ...[
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
                   decoration: BoxDecoration(
-                    color: colorScheme.primaryContainer
-                        .withValues(alpha: 0.5),
+                    color: colorScheme.primaryContainer.withValues(alpha: 0.5),
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: Text(
                     task.recurrence.label,
                     style: theme.textTheme.labelSmall?.copyWith(
-                      color: colorScheme.onPrimaryContainer
-                          .withValues(alpha: 0.8),
+                      color: colorScheme.onPrimaryContainer.withValues(
+                        alpha: 0.8,
+                      ),
                     ),
                   ),
                 ),

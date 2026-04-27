@@ -17,6 +17,7 @@ class SyncService {
   Timer? _periodicSyncTimer;
   final _changes = StreamController<void>.broadcast();
   bool _syncing = false;
+  bool _syncRequested = false;
 
   static const periodicSyncInterval = Duration(seconds: 60);
 
@@ -56,7 +57,11 @@ class SyncService {
     final client = _client;
     final local = _local;
     final user = client?.auth.currentUser;
-    if (client == null || local == null || user == null || _syncing) return;
+    if (client == null || local == null || user == null) return;
+    if (_syncing) {
+      _syncRequested = true;
+      return;
+    }
 
     _syncing = true;
     try {
@@ -69,6 +74,10 @@ class SyncService {
       // next app start, connectivity change, or local write.
     } finally {
       _syncing = false;
+      if (_syncRequested) {
+        _syncRequested = false;
+        unawaited(syncNow());
+      }
     }
   }
 
@@ -85,10 +94,42 @@ class SyncService {
         event: PostgresChangeEvent.all,
         schema: 'public',
         table: table.name,
-        callback: (_) => syncSoon(),
+        callback: (payload) => _handleRealtimePayload(table, payload),
       );
     }
     _realtimeChannel = channel.subscribe();
+  }
+
+  void _handleRealtimePayload(_SyncTable table, PostgresChangePayload payload) {
+    final client = _client;
+    final local = _local;
+    final user = client?.auth.currentUser;
+    if (client == null || local == null || user == null) return;
+
+    try {
+      final syncTime = nowIso();
+      if (payload.eventType == PostgresChangeEvent.delete) {
+        final key = payload.oldRecord[table.keyColumn];
+        if (key != null) {
+          local.execute(
+            'DELETE FROM ${table.name} WHERE ${table.keyColumn} = ?',
+            [key],
+          );
+          _changes.add(null);
+        }
+      } else {
+        final row = payload.newRecord;
+        if (row['user_id'] == null || row['user_id'] == user.id) {
+          final changed = _applyRemoteRow(local, table, row, user.id, syncTime);
+          if (changed) _changes.add(null);
+        }
+      }
+    } catch (_) {
+      // Fall through to a normal sync; realtime payload handling is an
+      // acceleration path, not the authoritative merge path.
+    } finally {
+      syncSoon();
+    }
   }
 
   Future<void> _pushPending(
@@ -154,34 +195,44 @@ class SyncService {
       final dynamic response = await client.from(table.name).select();
       final rows = (response as List).cast<Map<String, dynamic>>();
       for (final row in rows) {
-        final key = row[table.keyColumn];
-        if (key == null) continue;
-
-        if (row['sync_deleted_at'] != null) {
-          local.execute(
-            'DELETE FROM ${table.name} WHERE ${table.keyColumn} = ?',
-            [key],
-          );
-          continue;
-        }
-
-        final existing = local.selectOne(
-          'SELECT * FROM ${table.name} WHERE ${table.keyColumn} = ?',
-          [key],
-        );
-        if (existing != null && existing['sync_status'] == 'pending') {
-          final localTime = _parse(existing['client_modified_at']);
-          final remoteTime = _parse(row['updated_at']);
-          if (localTime != null &&
-              remoteTime != null &&
-              localTime.isAfter(remoteTime)) {
-            continue;
-          }
-        }
-
-        _upsertLocalRemoteRow(local, table.name, row, userId, syncTime);
+        _applyRemoteRow(local, table, row, userId, syncTime);
       }
     }
+  }
+
+  bool _applyRemoteRow(
+    LocalDatabase local,
+    _SyncTable table,
+    Map<String, dynamic> row,
+    String userId,
+    String syncTime,
+  ) {
+    final key = row[table.keyColumn];
+    if (key == null) return false;
+
+    if (row['sync_deleted_at'] != null) {
+      local.execute('DELETE FROM ${table.name} WHERE ${table.keyColumn} = ?', [
+        key,
+      ]);
+      return true;
+    }
+
+    final existing = local.selectOne(
+      'SELECT * FROM ${table.name} WHERE ${table.keyColumn} = ?',
+      [key],
+    );
+    if (existing != null && existing['sync_status'] == 'pending') {
+      final localTime = _parse(existing['client_modified_at']);
+      final remoteTime = _parse(row['updated_at']);
+      if (localTime != null &&
+          remoteTime != null &&
+          localTime.isAfter(remoteTime)) {
+        return false;
+      }
+    }
+
+    _upsertLocalRemoteRow(local, table.name, row, userId, syncTime);
+    return true;
   }
 
   Map<String, dynamic> _remotePayload(String table, Map<String, Object?> row) {
