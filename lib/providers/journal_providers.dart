@@ -25,6 +25,7 @@ class JournalEntries extends _$JournalEntries {
 
   Future<void> save(DateTime date, String content) async {
     await _repo().upsertForDate(date, content);
+    ref.invalidateSelf();
   }
 
   Future<void> delete(String id) async {

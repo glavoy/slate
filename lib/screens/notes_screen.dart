@@ -18,6 +18,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
   final _editorController = NoteEditorController();
   String _searchQuery = '';
   String? _selectedNoteId;
+  final _pendingCreatedNoteIds = <String>{};
   bool _autoFocusTitle = false;
   bool _isWide = false;
 
@@ -30,8 +31,17 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
   // Clear selection when the selected note no longer exists (e.g. deleted on
   // another device via realtime).
   void _clearSelectionIfGone(List<Note> notes) {
-    if (_selectedNoteId != null &&
-        notes.every((n) => n.id != _selectedNoteId)) {
+    final selectedId = _selectedNoteId;
+    if (selectedId == null) return;
+
+    if (notes.any((n) => n.id == selectedId)) {
+      _pendingCreatedNoteIds.remove(selectedId);
+      return;
+    }
+
+    if (_pendingCreatedNoteIds.contains(selectedId)) return;
+
+    if (_selectedNoteId != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) setState(() => _selectedNoteId = null);
       });
@@ -55,8 +65,14 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
     if (!context.mounted) return;
     if (isWide) {
       setState(() {
+        _searchQuery = '';
+        _searchController.clear();
+        _pendingCreatedNoteIds.add(note.id);
         _selectedNoteId = note.id;
         _autoFocusTitle = true;
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _editorController.focusTitle();
       });
     } else {
       await Navigator.of(context).push(

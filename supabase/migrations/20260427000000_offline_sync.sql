@@ -8,6 +8,9 @@ alter table public.notes
 alter table public.journal_entries
   add column if not exists sync_deleted_at timestamptz;
 
+create unique index if not exists journal_entries_user_entry_date_key
+  on public.journal_entries (user_id, entry_date);
+
 alter table public.simple_list
   add column if not exists sync_deleted_at timestamptz;
 

@@ -14,13 +14,16 @@ import '../providers/note_providers.dart';
 class NoteEditorController {
   int _generation = 0;
   VoidCallback? _toggleBulletFn;
+  VoidCallback? _focusTitleFn;
   Future<void> Function(BuildContext)? _deleteFn;
 
   int _register({
     required VoidCallback toggleBullet,
+    required VoidCallback focusTitle,
     required Future<void> Function(BuildContext) delete,
   }) {
     _toggleBulletFn = toggleBullet;
+    _focusTitleFn = focusTitle;
     _deleteFn = delete;
     return ++_generation;
   }
@@ -28,11 +31,13 @@ class NoteEditorController {
   void _unregister(int gen) {
     if (_generation == gen) {
       _toggleBulletFn = null;
+      _focusTitleFn = null;
       _deleteFn = null;
     }
   }
 
   void toggleBullet() => _toggleBulletFn?.call();
+  void focusTitle() => _focusTitleFn?.call();
   Future<void> confirmDelete(BuildContext context) =>
       _deleteFn?.call(context) ?? Future.value();
 }
@@ -75,6 +80,7 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
     if (widget.controller != null) {
       _controllerGeneration = widget.controller!._register(
         toggleBullet: _toggleBullet,
+        focusTitle: _focusTitle,
         delete: _confirmDelete,
       );
     }
@@ -129,6 +135,10 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
   void _requestTitleFocus() {
     if (!widget.autoFocusTitle || _autoFocusRequested) return;
     _autoFocusRequested = true;
+    _focusTitle();
+  }
+
+  void _focusTitle() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _focusNode.requestFocus();

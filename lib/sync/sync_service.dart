@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:developer' as developer;
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -69,9 +70,15 @@ class SyncService {
       await _pullRemote(client, local, user.id);
       local.setMeta('last_sync_at', nowIso());
       _changes.add(null);
-    } catch (_) {
+    } catch (error, stackTrace) {
       // The app remains local-first. Failed sync attempts are retried on the
       // next app start, connectivity change, or local write.
+      developer.log(
+        'Sync failed',
+        name: 'slate.sync',
+        error: error,
+        stackTrace: stackTrace,
+      );
     } finally {
       _syncing = false;
       if (_syncRequested) {
