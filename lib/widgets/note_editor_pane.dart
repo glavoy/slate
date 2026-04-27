@@ -24,9 +24,8 @@ class NoteEditorPane extends ConsumerStatefulWidget {
 }
 
 class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
-  final _titleController = TextEditingController();
-  final _contentController = TextEditingController();
-  final _titleFocus = FocusNode();
+  late final _NoteController _controller;
+  final _focusNode = FocusNode();
   Timer? _debounce;
   String _lastSavedTitle = '';
   String _lastSavedContent = '';
@@ -36,23 +35,51 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
   static const _bullet = '• ';
 
   @override
+  void initState() {
+    super.initState();
+    _controller = _NoteController();
+  }
+
+  @override
   void dispose() {
     _debounce?.cancel();
     _flushIfDirty();
-    _titleController.dispose();
-    _contentController.dispose();
-    _titleFocus.dispose();
+    _controller.dispose();
+    _focusNode.dispose();
     super.dispose();
   }
 
+  // Extract title = everything before the first \n
+  String get _title {
+    final text = _controller.text;
+    final i = text.indexOf('\n');
+    return i == -1 ? text : text.substring(0, i);
+  }
+
+  // Extract content = everything after the first \n
+  String get _content {
+    final text = _controller.text;
+    final i = text.indexOf('\n');
+    return i == -1 ? '' : text.substring(i + 1);
+  }
+
+  static String _buildInitial(Note note) {
+    if (note.title.isEmpty && note.content.isEmpty) return '';
+    if (note.title.isEmpty) return note.content;
+    if (note.content.isEmpty) return note.title;
+    return '${note.title}\n${note.content}';
+  }
+
   void _flushIfDirty() {
-    final t = _titleController.text;
-    final c = _contentController.text;
     if (!_initialized) return;
+    final t = _title;
+    final c = _content;
     if (t == _lastSavedTitle && c == _lastSavedContent) return;
     _lastSavedTitle = t;
     _lastSavedContent = c;
-    ref.read(noteListProvider.notifier).edit(widget.noteId, title: t, content: c);
+    ref
+        .read(noteListProvider.notifier)
+        .edit(widget.noteId, title: t, content: c);
   }
 
   void _scheduleSave() {
@@ -61,11 +88,16 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
   }
 
   void _toggleBullet() {
-    final text = _contentController.text;
-    final sel = _contentController.selection;
+    final text = _controller.text;
+    final sel = _controller.selection;
     if (!sel.isValid) return;
     final cursor = sel.isCollapsed ? sel.baseOffset : sel.start;
-    final lineStart = cursor == 0 ? 0 : text.lastIndexOf('\n', cursor - 1) + 1;
+
+    // Bullet toggle is only for body lines (not the title)
+    final firstNewline = text.indexOf('\n');
+    if (firstNewline == -1 || cursor <= firstNewline) return;
+
+    final lineStart = text.lastIndexOf('\n', cursor - 1) + 1;
     final lineEndRaw = text.indexOf('\n', cursor);
     final lineEnd = lineEndRaw < 0 ? text.length : lineEndRaw;
     final line = text.substring(lineStart, lineEnd);
@@ -77,15 +109,15 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
       newText = text.substring(0, lineStart) +
           line.substring(_bullet.length) +
           text.substring(lineEnd);
-      newCursor = (cursor - _bullet.length).clamp(
-          lineStart, lineStart + line.length - _bullet.length);
+      newCursor = (cursor - _bullet.length)
+          .clamp(lineStart, lineStart + line.length - _bullet.length);
     } else {
       newText =
           text.substring(0, lineStart) + _bullet + text.substring(lineStart);
       newCursor = cursor + _bullet.length;
     }
 
-    _contentController.value = TextEditingValue(
+    _controller.value = TextEditingValue(
       text: newText,
       selection: TextSelection.collapsed(offset: newCursor),
     );
@@ -130,6 +162,7 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
+    final bodyFontSize = theme.textTheme.bodyLarge?.fontSize ?? 16.0;
     final asyncNotes = ref.watch(noteListProvider);
 
     return asyncNotes.when(
@@ -140,14 +173,13 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
         if (note == null) return const Center(child: Text('Note not found'));
 
         if (!_initialized) {
-          _titleController.text = note.title;
-          _contentController.text = note.content;
+          _controller.text = _buildInitial(note);
           _lastSavedTitle = note.title;
           _lastSavedContent = note.content;
           _initialized = true;
           if (widget.autoFocusTitle) {
             WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (mounted) _titleFocus.requestFocus();
+              if (mounted) _focusNode.requestFocus();
             });
           }
         }
@@ -155,71 +187,48 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Title area — visually distinct background
-            Container(
-              color: cs.surfaceContainer,
-              padding: const EdgeInsets.fromLTRB(16, 10, 8, 10),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _titleController,
-                      focusNode: _titleFocus,
-                      style: theme.textTheme.titleLarge
-                          ?.copyWith(fontWeight: FontWeight.bold),
-                      decoration: InputDecoration(
-                        hintText: 'Title',
-                        hintStyle: TextStyle(
-                          color: cs.onSurface.withValues(alpha: 0.3),
-                          fontWeight: FontWeight.bold,
-                        ),
-                        border: InputBorder.none,
-                        isDense: true,
-                      ),
-                      onChanged: (_) => _scheduleSave(),
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.delete_outline),
-                    iconSize: 20,
-                    tooltip: 'Delete note',
-                    onPressed: () => _confirmDelete(context),
-                  ),
-                ],
-              ),
-            ),
-            // Formatting toolbar
-            Container(
-              color: cs.surfaceContainerLow,
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-              child: Row(
-                children: [
-                  IconButton(
-                    icon: const Icon(Icons.format_list_bulleted),
-                    iconSize: 18,
-                    tooltip: 'Toggle bullet list',
-                    visualDensity: VisualDensity.compact,
-                    onPressed: _toggleBullet,
-                  ),
-                ],
-              ),
+            // Compact action row — bullet + delete, right-aligned
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.format_list_bulleted),
+                  iconSize: 18,
+                  tooltip: 'Toggle bullet',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: _toggleBullet,
+                ),
+                IconButton(
+                  icon: const Icon(Icons.delete_outline),
+                  iconSize: 18,
+                  tooltip: 'Delete note',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () => _confirmDelete(context),
+                ),
+              ],
             ),
             const Divider(height: 1),
-            // Content area
+            // Single unified text area — first line renders as bold title
             Expanded(
               child: TextField(
-                controller: _contentController,
+                controller: _controller,
+                focusNode: _focusNode,
                 maxLines: null,
                 expands: true,
                 keyboardType: TextInputType.multiline,
                 textAlignVertical: TextAlignVertical.top,
                 style: theme.textTheme.bodyLarge,
                 inputFormatters: [_NoteBulletFormatter()],
-                decoration: const InputDecoration(
-                  hintText: 'Start writing…',
+                decoration: InputDecoration(
+                  hintText: 'Title',
+                  hintStyle: TextStyle(
+                    color: cs.onSurface.withValues(alpha: 0.3),
+                    fontWeight: FontWeight.bold,
+                    fontSize: bodyFontSize * 1.3,
+                  ),
                   border: InputBorder.none,
                   isDense: true,
-                  contentPadding: EdgeInsets.all(16),
+                  contentPadding: const EdgeInsets.all(16),
                 ),
                 onChanged: (_) => _scheduleSave(),
               ),
@@ -227,6 +236,38 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
           ],
         );
       },
+    );
+  }
+}
+
+// Styles the first line (title) as bold + larger; body lines use base style.
+class _NoteController extends TextEditingController {
+  @override
+  TextSpan buildTextSpan({
+    required BuildContext context,
+    TextStyle? style,
+    required bool withComposing,
+  }) {
+    final base = style ??
+        Theme.of(context).textTheme.bodyLarge ??
+        const TextStyle();
+    final titleStyle = base.copyWith(
+      fontWeight: FontWeight.bold,
+      fontSize: (base.fontSize ?? 16.0) * 1.3,
+    );
+
+    final text = this.text;
+    final newlineIndex = text.indexOf('\n');
+
+    if (newlineIndex == -1) {
+      return TextSpan(text: text, style: titleStyle);
+    }
+
+    return TextSpan(
+      children: [
+        TextSpan(text: text.substring(0, newlineIndex), style: titleStyle),
+        TextSpan(text: text.substring(newlineIndex), style: base),
+      ],
     );
   }
 }
@@ -262,7 +303,7 @@ class _NoteBulletFormatter extends TextInputFormatter {
       );
     }
 
-    // Continue bullet on new line
+    // Continue bullet on next line
     final after = newValue.text.substring(cursor);
     if (after.startsWith(_bullet)) return newValue;
     final updated = newValue.text.substring(0, cursor) + _bullet + after;
