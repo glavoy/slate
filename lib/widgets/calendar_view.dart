@@ -165,7 +165,7 @@ class _CalendarViewState extends ConsumerState<CalendarView> {
               : SingleChildScrollView(
                   padding: const EdgeInsets.fromLTRB(0, 8, 0, 16),
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       // Single shared date label
                       FractionallySizedBox(
