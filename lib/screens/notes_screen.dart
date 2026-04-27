@@ -169,6 +169,14 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
           style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.2),
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.delete_sweep_outlined),
+            iconSize: 20,
+            tooltip: 'Trash',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const _TrashScreen()),
+            ),
+          ),
           if (_selectedNoteId != null) ...[
             IconButton(
               icon: const Icon(Icons.format_list_bulleted),
@@ -359,9 +367,160 @@ class _NoteListTile extends StatelessWidget {
                   padding: EdgeInsets.zero,
                   tooltip: note.pinned ? 'Unpin' : 'Pin',
                   onPressed: onPin,
+
                 ),
               ],
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Trash screen ─────────────────────────────────────────────────────────────
+
+class _TrashScreen extends ConsumerWidget {
+  const _TrashScreen();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final asyncDeleted = ref.watch(deletedNoteListProvider);
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text(
+          'Trash',
+          style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.2),
+        ),
+      ),
+      body: asyncDeleted.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (e, _) => Center(child: Text('Error: $e')),
+        data: (notes) => notes.isEmpty
+            ? Center(
+                child: Text(
+                  'Trash is empty',
+                  style: TextStyle(
+                    color: cs.onSurface.withValues(alpha: 0.5),
+                    fontSize: 16,
+                  ),
+                ),
+              )
+            : ListView.builder(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                itemCount: notes.length,
+                itemBuilder: (_, i) => _TrashNoteTile(note: notes[i]),
+              ),
+      ),
+    );
+  }
+}
+
+class _TrashNoteTile extends ConsumerWidget {
+  final Note note;
+  const _TrashNoteTile({required this.note});
+
+  String _deletedAgo(DateTime dt) {
+    final now = DateTime.now();
+    final diff = now.difference(dt);
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    if (diff.inDays < 7) return '${diff.inDays}d ago';
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    final m = months[dt.month - 1];
+    return dt.year != now.year
+        ? '$m ${dt.day}, ${dt.year}'
+        : '$m ${dt.day}';
+  }
+
+  Future<void> _confirmPermanentDelete(
+      BuildContext context, WidgetRef ref) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete permanently?'),
+        content: const Text('This note will be gone forever.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && context.mounted) {
+      await ref
+          .read(deletedNoteListProvider.notifier)
+          .permanentlyDelete(note.id);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final title = note.title.isEmpty ? '(Untitled)' : note.title;
+    final deletedAt = note.deletedAt ?? DateTime.now();
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      child: Material(
+        color: theme.brightness == Brightness.dark
+            ? cs.surfaceContainerHigh
+            : cs.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(10),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 10, 4, 10),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleSmall
+                          ?.copyWith(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Deleted ${_deletedAgo(deletedAt)}',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: cs.onSurface.withValues(alpha: 0.55),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.restore),
+                iconSize: 20,
+                tooltip: 'Restore',
+                onPressed: () => ref
+                    .read(deletedNoteListProvider.notifier)
+                    .restore(note.id),
+              ),
+              IconButton(
+                icon: const Icon(Icons.delete_forever_outlined),
+                iconSize: 20,
+                tooltip: 'Delete permanently',
+                color: cs.error,
+                onPressed: () => _confirmPermanentDelete(context, ref),
+              ),
+            ],
           ),
         ),
       ),

@@ -9,8 +9,18 @@ class NoteRepository {
     final rows = await _client
         .from('notes')
         .select()
+        .filter('deleted_at', 'is', null)
         .order('pinned', ascending: false)
         .order('updated_at', ascending: false);
+    return rows.map<Note>((r) => Note.fromJson(r)).toList();
+  }
+
+  Future<List<Note>> fetchDeleted() async {
+    final rows = await _client
+        .from('notes')
+        .select()
+        .not('deleted_at', 'is', null)
+        .order('deleted_at', ascending: false);
     return rows.map<Note>((r) => Note.fromJson(r)).toList();
   }
 
@@ -36,7 +46,17 @@ class NoteRepository {
     await _client.from('notes').update({'pinned': pinned}).eq('id', id);
   }
 
-  Future<void> delete(String id) async {
+  Future<void> softDelete(String id) async {
+    await _client.from('notes').update({
+      'deleted_at': DateTime.now().toIso8601String(),
+    }).eq('id', id);
+  }
+
+  Future<void> restore(String id) async {
+    await _client.from('notes').update({'deleted_at': null}).eq('id', id);
+  }
+
+  Future<void> permanentlyDelete(String id) async {
     await _client.from('notes').delete().eq('id', id);
   }
 }

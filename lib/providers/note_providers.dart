@@ -16,19 +16,16 @@ class NoteList extends _$NoteList {
     final client = ref.watch(supabaseClientProvider);
 
     final channel = client
-        .channel('public:notes')
+        .channel('public:notes:active')
         .onPostgresChanges(
           event: PostgresChangeEvent.all,
           schema: 'public',
           table: 'notes',
-          callback: (_) {
-            ref.invalidateSelf();
-          },
+          callback: (_) => ref.invalidateSelf(),
         )
         .subscribe();
 
     ref.onDispose(channel.unsubscribe);
-
     return _repo().fetchAll();
   }
 
@@ -48,8 +45,44 @@ class NoteList extends _$NoteList {
     ref.invalidateSelf();
   }
 
+  // Soft-delete: sets deleted_at rather than removing the row.
   Future<void> delete(String id) async {
-    await _repo().delete(id);
+    await _repo().softDelete(id);
+    ref.invalidateSelf();
+    ref.invalidate(deletedNoteListProvider);
+  }
+}
+
+@riverpod
+class DeletedNoteList extends _$DeletedNoteList {
+  NoteRepository _repo() => NoteRepository(ref.read(supabaseClientProvider));
+
+  @override
+  Future<List<Note>> build() async {
+    final client = ref.watch(supabaseClientProvider);
+
+    final channel = client
+        .channel('public:notes:trash')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'notes',
+          callback: (_) => ref.invalidateSelf(),
+        )
+        .subscribe();
+
+    ref.onDispose(channel.unsubscribe);
+    return _repo().fetchDeleted();
+  }
+
+  Future<void> restore(String id) async {
+    await _repo().restore(id);
+    ref.invalidateSelf();
+    ref.invalidate(noteListProvider);
+  }
+
+  Future<void> permanentlyDelete(String id) async {
+    await _repo().permanentlyDelete(id);
     ref.invalidateSelf();
   }
 }
