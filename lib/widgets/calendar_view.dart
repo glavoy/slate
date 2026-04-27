@@ -165,38 +165,48 @@ class _CalendarViewState extends ConsumerState<CalendarView> {
               : SingleChildScrollView(
                   padding: const EdgeInsets.fromLTRB(0, 8, 0, 16),
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       // Single shared date label
-                      FractionallySizedBox(
-                        widthFactor: 0.6,
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(4, 4, 4, 6),
-                          child: Text(
-                            du.formatDateGroupHeader(_selectedDay),
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: headerColor,
-                              fontWeight: FontWeight.w500,
+                      Row(
+                        children: [
+                          Expanded(
+                            flex: 3,
+                            child: Padding(
+                              padding: const EdgeInsets.fromLTRB(16, 4, 4, 6),
+                              child: Text(
+                                du.formatDateGroupHeader(_selectedDay),
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  color: headerColor,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
                             ),
                           ),
-                        ),
+                          const Expanded(flex: 2, child: SizedBox.shrink()),
+                        ],
                       ),
                       // One card per task
                       for (final entry in selectedEntries)
-                        FractionallySizedBox(
-                          widthFactor: 0.6,
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 3),
-                            child: Container(
-                              decoration: BoxDecoration(
-                                color: dayCardColor,
-                                borderRadius: BorderRadius.circular(14),
+                        Row(
+                          children: [
+                            Expanded(
+                              flex: 3,
+                              child: Padding(
+                                padding: const EdgeInsets.fromLTRB(12, 3, 0, 3),
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    color: dayCardColor,
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                  child: entry.isProjected
+                                      ? _ProjectedTaskTile(entry: entry)
+                                      : TaskCard(task: entry.task),
+                                ),
                               ),
-                              child: entry.isProjected
-                                  ? _ProjectedTaskTile(entry: entry)
-                                  : TaskCard(task: entry.task),
                             ),
-                          ),
+                            const Expanded(flex: 2, child: SizedBox.shrink()),
+                          ],
                         ),
                     ],
                   ),
