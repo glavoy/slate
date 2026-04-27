@@ -13,8 +13,12 @@ class SyncService {
   SupabaseClient? _client;
   LocalDatabase? _local;
   StreamSubscription<dynamic>? _connectivitySubscription;
+  RealtimeChannel? _realtimeChannel;
+  Timer? _periodicSyncTimer;
   final _changes = StreamController<void>.broadcast();
   bool _syncing = false;
+
+  static const periodicSyncInterval = Duration(seconds: 60);
 
   static const _tables = <_SyncTable>[
     _SyncTable('tasks', 'id'),
@@ -39,6 +43,11 @@ class SyncService {
     _connectivitySubscription ??= Connectivity().onConnectivityChanged.listen(
       (_) => syncNow(),
     );
+    _periodicSyncTimer ??= Timer.periodic(
+      periodicSyncInterval,
+      (_) => syncNow(),
+    );
+    _subscribeToRealtime(client);
   }
 
   Stream<void> get changes => _changes.stream;
@@ -65,6 +74,21 @@ class SyncService {
 
   void syncSoon() {
     unawaited(syncNow());
+  }
+
+  void _subscribeToRealtime(SupabaseClient client) {
+    if (_realtimeChannel != null) return;
+
+    var channel = client.channel('slate-sync');
+    for (final table in _tables) {
+      channel = channel.onPostgresChanges(
+        event: PostgresChangeEvent.all,
+        schema: 'public',
+        table: table.name,
+        callback: (_) => syncSoon(),
+      );
+    }
+    _realtimeChannel = channel.subscribe();
   }
 
   Future<void> _pushPending(
