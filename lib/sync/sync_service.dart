@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:developer' as developer;
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -70,15 +69,9 @@ class SyncService {
       await _pullRemote(client, local, user.id);
       local.setMeta('last_sync_at', nowIso());
       _changes.add(null);
-    } catch (error, stackTrace) {
+    } catch (_) {
       // The app remains local-first. Failed sync attempts are retried on the
       // next app start, connectivity change, or local write.
-      developer.log(
-        'Sync failed',
-        name: 'slate.sync',
-        error: error,
-        stackTrace: stackTrace,
-      );
     } finally {
       _syncing = false;
       if (_syncRequested) {
@@ -148,46 +141,98 @@ class SyncService {
     for (final table in _tables) {
       final rows = local.select(
         '''
-        SELECT * FROM ${table.name}
-        WHERE sync_status = ? AND user_id = ?
-        ''',
+          SELECT * FROM ${table.name}
+          WHERE sync_status = ? AND user_id = ?
+          ''',
         ['pending', userId],
       );
       for (final row in rows) {
         final key = row[table.keyColumn];
         if (key == null) continue;
 
-        if (sqlToBool(row['pending_delete'])) {
-          await client
-              .from(table.name)
-              .update({
-                'sync_deleted_at': row['client_modified_at'] ?? syncTime,
-                'updated_at': row['client_modified_at'] ?? syncTime,
-              })
-              .eq(table.keyColumn, key);
-          local.execute(
-            'DELETE FROM ${table.name} WHERE ${table.keyColumn} = ?',
-            [key],
-          );
-          continue;
-        }
+        try {
+          if (sqlToBool(row['pending_delete'])) {
+            await _pushDelete(client, table, row, syncTime);
+            local.execute(
+              'DELETE FROM ${table.name} WHERE ${table.keyColumn} = ?',
+              [key],
+            );
+            continue;
+          }
 
-        final payload = _remotePayload(table.name, row);
-        if (table.upsertConflict == null) {
-          await client.from(table.name).upsert(payload);
-        } else {
-          await client
-              .from(table.name)
-              .upsert(payload, onConflict: table.upsertConflict);
+          await _pushUpsert(client, table, row);
+          local.execute(
+            '''
+            UPDATE ${table.name}
+            SET sync_status = 'synced', last_synced_at = ?
+            WHERE ${table.keyColumn} = ?
+            ''',
+            [syncTime, key],
+          );
+        } catch (_) {
+          // Leave the row pending; a later sync attempt can retry it.
         }
-        local.execute(
-          '''
-          UPDATE ${table.name}
-          SET sync_status = 'synced', last_synced_at = ?
-          WHERE ${table.keyColumn} = ?
-          ''',
-          [syncTime, key],
-        );
+      }
+    }
+  }
+
+  Future<void> _pushDelete(
+    SupabaseClient client,
+    _SyncTable table,
+    Map<String, Object?> row,
+    String syncTime,
+  ) async {
+    final key = row[table.keyColumn];
+    final timestamp = row['client_modified_at'] ?? syncTime;
+    try {
+      await client
+          .from(table.name)
+          .update({'sync_deleted_at': timestamp, 'updated_at': timestamp})
+          .eq(table.keyColumn, key!);
+    } catch (_) {
+      await client.from(table.name).delete().eq(table.keyColumn, key!);
+    }
+  }
+
+  Future<void> _pushUpsert(
+    SupabaseClient client,
+    _SyncTable table,
+    Map<String, Object?> row,
+  ) async {
+    final payload = _remotePayload(table.name, row);
+    if (table.name == 'journal_entries') {
+      await _pushJournalEntry(client, table, payload);
+      return;
+    }
+    if (table.upsertConflict == null) {
+      await client.from(table.name).upsert(payload);
+    } else {
+      await client
+          .from(table.name)
+          .upsert(payload, onConflict: table.upsertConflict);
+    }
+  }
+
+  Future<void> _pushJournalEntry(
+    SupabaseClient client,
+    _SyncTable table,
+    Map<String, dynamic> payload,
+  ) async {
+    try {
+      await client
+          .from(table.name)
+          .upsert(payload, onConflict: table.upsertConflict);
+      return;
+    } catch (_) {
+      final existing = await client
+          .from(table.name)
+          .select('id')
+          .eq('entry_date', payload['entry_date'])
+          .maybeSingle();
+      if (existing == null) {
+        await client.from(table.name).insert(payload);
+      } else {
+        await client.from(table.name).update(payload).eq('id', existing['id']);
       }
     }
   }
@@ -199,10 +244,14 @@ class SyncService {
   ) async {
     final syncTime = nowIso();
     for (final table in _tables) {
-      final dynamic response = await client.from(table.name).select();
-      final rows = (response as List).cast<Map<String, dynamic>>();
-      for (final row in rows) {
-        _applyRemoteRow(local, table, row, userId, syncTime);
+      try {
+        final dynamic response = await client.from(table.name).select();
+        final rows = (response as List).cast<Map<String, dynamic>>();
+        for (final row in rows) {
+          _applyRemoteRow(local, table, row, userId, syncTime);
+        }
+      } catch (_) {
+        // Continue pulling other tables even if one table is unavailable.
       }
     }
   }
@@ -253,6 +302,7 @@ class SyncService {
     for (final entry in row.entries) {
       if (excluded.contains(entry.key)) continue;
       if (!_columnsFor(table).contains(entry.key)) continue;
+      if (entry.key == 'sync_deleted_at' && entry.value == null) continue;
       final value = entry.value;
       if (value is int && _boolColumns(table).contains(entry.key)) {
         payload[entry.key] = value == 1;

@@ -41,6 +41,13 @@ class _SimpleListSectionState extends ConsumerState<SimpleListSection> {
     });
   }
 
+  void _initialize(String content) {
+    final initial = content.isEmpty ? _bullet : content;
+    _controller.text = initial;
+    _lastSavedContent = initial;
+    _initialized = true;
+  }
+
   void _applyRemote(String remoteContent) {
     if (remoteContent == _controller.text) return;
     if (remoteContent == _lastSavedContent) return;
@@ -62,10 +69,7 @@ class _SimpleListSectionState extends ConsumerState<SimpleListSection> {
     ref.listen(simpleListNotifierProvider, (prev, next) {
       next.whenData((list) {
         if (!_initialized) {
-          final initial = list.content.isEmpty ? _bullet : list.content;
-          _controller.text = initial;
-          _lastSavedContent = initial;
-          _initialized = true;
+          _initialize(list.content);
           return;
         }
         _applyRemote(list.content);
@@ -83,32 +87,38 @@ class _SimpleListSectionState extends ConsumerState<SimpleListSection> {
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
         child: Text('Quick list error: $e'),
       ),
-      data: (_) => Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxHeight: 240),
-          child: Scrollbar(
-            child: SingleChildScrollView(
-              child: TextField(
-                controller: _controller,
-                maxLines: null,
-                minLines: 1,
-                keyboardType: TextInputType.multiline,
-                textInputAction: TextInputAction.newline,
-                inputFormatters: [_bulletFormatter],
-                style: theme.textTheme.bodyMedium?.copyWith(fontSize: 14),
-                decoration: const InputDecoration(
-                  border: InputBorder.none,
-                  isDense: true,
-                  contentPadding: EdgeInsets.zero,
-                  hintText: '• Add quick items here',
+      data: (list) {
+        if (!_initialized) {
+          _initialize(list.content);
+        }
+
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 240),
+            child: Scrollbar(
+              child: SingleChildScrollView(
+                child: TextField(
+                  controller: _controller,
+                  maxLines: null,
+                  minLines: 1,
+                  keyboardType: TextInputType.multiline,
+                  textInputAction: TextInputAction.newline,
+                  inputFormatters: [_bulletFormatter],
+                  style: theme.textTheme.bodyMedium?.copyWith(fontSize: 14),
+                  decoration: const InputDecoration(
+                    border: InputBorder.none,
+                    isDense: true,
+                    contentPadding: EdgeInsets.zero,
+                    hintText: '• Add quick items here',
+                  ),
+                  onChanged: _onChanged,
                 ),
-                onChanged: _onChanged,
               ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }

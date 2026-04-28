@@ -7,7 +7,7 @@ import 'supabase_provider.dart';
 
 part 'simple_list_providers.g.dart';
 
-@riverpod
+@Riverpod(keepAlive: true)
 class SimpleListNotifier extends _$SimpleListNotifier {
   SimpleListRepository _repo() =>
       SimpleListRepository(ref.read(supabaseClientProvider));
