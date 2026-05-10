@@ -19,8 +19,11 @@ class SyncService {
   final _changes = StreamController<void>.broadcast();
   bool _syncing = false;
   bool _syncRequested = false;
+  DateTime? _syncStartedAt;
 
   static const periodicSyncInterval = Duration(seconds: 60);
+  static const syncTimeout = Duration(seconds: 25);
+  static const realtimeReconnectTimeout = Duration(seconds: 5);
 
   static const _tables = <_SyncTable>[
     _SyncTable('tasks', 'id'),
@@ -43,34 +46,64 @@ class SyncService {
     _client = client;
     _local = local;
     _connectivitySubscription ??= Connectivity().onConnectivityChanged.listen(
-      (_) => syncNow(),
+      (_) => syncSoon(),
     );
     _periodicSyncTimer ??= Timer.periodic(
       periodicSyncInterval,
-      (_) => syncNow(),
+      (_) => syncSoon(),
     );
     _subscribeToRealtime(client);
   }
 
   Stream<void> get changes => _changes.stream;
 
-  Future<void> syncNow() async {
+  Future<void> syncAfterResume() async {
+    await _reconnectRealtime();
+    await syncNow(force: true);
+  }
+
+  void syncSoonAfterResume() {
+    unawaited(syncAfterResume());
+  }
+
+  Future<void> syncNow({bool force = false}) async {
     final client = _client;
     final local = _local;
     final user = client?.auth.currentUser;
     if (client == null || local == null || user == null) return;
     if (_syncing) {
-      _syncRequested = true;
-      return;
+      if (!force || !_syncLooksStale()) {
+        _syncRequested = true;
+        return;
+      }
+      _logSyncMessage('forcing sync after stale in-flight sync');
+      _syncing = false;
     }
 
+    await _runSync(client, local, user.id).timeout(
+      syncTimeout,
+      onTimeout: () {
+        _logSyncMessage('sync timed out');
+        _syncing = false;
+        _syncStartedAt = null;
+        _syncRequested = true;
+      },
+    );
+  }
+
+  Future<void> _runSync(
+    SupabaseClient client,
+    LocalDatabase local,
+    String userId,
+  ) async {
     _syncing = true;
+    _syncStartedAt = DateTime.now();
     final previousSyncAt = local.getMeta('last_sync_at');
     final syncStartedAt = nowIso();
     try {
-      await _pullRemote(client, local, user.id, since: previousSyncAt);
-      await _pushPending(client, local, user.id);
-      await _pullRemote(client, local, user.id, since: previousSyncAt);
+      await _pullRemote(client, local, userId, since: previousSyncAt);
+      await _pushPending(client, local, userId);
+      await _pullRemote(client, local, userId, since: previousSyncAt);
       local.setMeta('last_sync_at', syncStartedAt);
       _changes.add(null);
     } catch (error, stackTrace) {
@@ -79,6 +112,7 @@ class SyncService {
       _logSyncError('syncNow', error, stackTrace);
     } finally {
       _syncing = false;
+      _syncStartedAt = null;
       if (_syncRequested) {
         _syncRequested = false;
         unawaited(syncNow());
@@ -88,6 +122,12 @@ class SyncService {
 
   void syncSoon() {
     unawaited(syncNow());
+  }
+
+  bool _syncLooksStale() {
+    final startedAt = _syncStartedAt;
+    if (startedAt == null) return true;
+    return DateTime.now().difference(startedAt) > syncTimeout;
   }
 
   void _subscribeToRealtime(SupabaseClient client) {
@@ -103,6 +143,21 @@ class SyncService {
       );
     }
     _realtimeChannel = channel.subscribe();
+  }
+
+  Future<void> _reconnectRealtime() async {
+    final client = _client;
+    if (client == null) return;
+    final channel = _realtimeChannel;
+    _realtimeChannel = null;
+    if (channel != null) {
+      try {
+        await client.removeChannel(channel).timeout(realtimeReconnectTimeout);
+      } catch (error, stackTrace) {
+        _logSyncError('realtime reconnect', error, stackTrace);
+      }
+    }
+    _subscribeToRealtime(client);
   }
 
   void _handleRealtimePayload(_SyncTable table, PostgresChangePayload payload) {
@@ -527,6 +582,11 @@ class SyncService {
     if (!kDebugMode) return;
     debugPrint('Slate sync $operation failed: $error');
     debugPrintStack(stackTrace: stackTrace);
+  }
+
+  void _logSyncMessage(String message) {
+    if (!kDebugMode) return;
+    debugPrint('Slate sync: $message');
   }
 }
 

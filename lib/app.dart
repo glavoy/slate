@@ -4,12 +4,38 @@ import 'providers/auth_provider.dart';
 import 'providers/theme_provider.dart';
 import 'screens/auth_screen.dart';
 import 'screens/main_screen.dart';
+import 'sync/sync_service.dart';
 
-class SlateApp extends ConsumerWidget {
+class SlateApp extends ConsumerStatefulWidget {
   const SlateApp({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<SlateApp> createState() => _SlateAppState();
+}
+
+class _SlateAppState extends ConsumerState<SlateApp>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      SyncService.instance.syncSoonAfterResume();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final themeMode = ref.watch(themeNotifierProvider);
 
     return MaterialApp(
