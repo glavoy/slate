@@ -23,19 +23,20 @@ class Note with _$Note {
       fromJson: _dateFromJsonNullable,
       toJson: _dateToJsonNullable,
     )
-    @Default(null) DateTime? deletedAt,
-    @JsonKey(
-      name: 'created_at',
-      fromJson: _dateFromJson,
-      toJson: _dateToJson,
-    )
+    @Default(null)
+    DateTime? deletedAt,
+    @JsonKey(name: 'created_at', fromJson: _dateFromJson, toJson: _dateToJson)
     required DateTime createdAt,
-    @JsonKey(
-      name: 'updated_at',
-      fromJson: _dateFromJson,
-      toJson: _dateToJson,
-    )
+    @JsonKey(name: 'updated_at', fromJson: _dateFromJson, toJson: _dateToJson)
     required DateTime updatedAt,
+    @JsonKey(name: 'sync_status') @Default('synced') String syncStatus,
+    @JsonKey(
+      name: 'last_synced_at',
+      fromJson: _dateFromJsonNullable,
+      toJson: _dateToJsonNullable,
+    )
+    @Default(null)
+    DateTime? lastSyncedAt,
   }) = _Note;
 
   factory Note.fromJson(Map<String, dynamic> json) => _$NoteFromJson(json);

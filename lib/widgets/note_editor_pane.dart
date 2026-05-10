@@ -68,6 +68,7 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
   String _lastSavedContent = '';
   bool _initialized = false;
   bool _autoFocusRequested = false;
+  bool _hasUnsavedEditorChanges = false;
   int _controllerGeneration = 0;
   DateTime? _lastAppliedRemoteUpdate;
 
@@ -120,9 +121,19 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
     if (!_initialized) return;
     final t = _title;
     final c = _content;
-    if (t == _lastSavedTitle && c == _lastSavedContent) return;
+    if (t == _lastSavedTitle && c == _lastSavedContent) {
+      if (_hasUnsavedEditorChanges) {
+        setState(() => _hasUnsavedEditorChanges = false);
+      }
+      return;
+    }
     _lastSavedTitle = t;
     _lastSavedContent = c;
+    if (mounted) {
+      setState(() => _hasUnsavedEditorChanges = false);
+    } else {
+      _hasUnsavedEditorChanges = false;
+    }
     ref
         .read(noteListProvider.notifier)
         .edit(widget.noteId, title: t, content: c);
@@ -133,6 +144,9 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
       (_title != _lastSavedTitle || _content != _lastSavedContent);
 
   void _scheduleSave() {
+    if (!_hasUnsavedEditorChanges) {
+      setState(() => _hasUnsavedEditorChanges = true);
+    }
     _debounce?.cancel();
     _debounce = Timer(_debounceDuration, _flushIfDirty);
   }
@@ -278,30 +292,99 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
         _applyRemoteNoteIfClean(note);
         _requestTitleFocus();
 
-        return TextField(
-          controller: _controller,
-          focusNode: _focusNode,
-          maxLines: null,
-          expands: true,
-          keyboardType: TextInputType.multiline,
-          textAlignVertical: TextAlignVertical.top,
-          style: theme.textTheme.bodyLarge,
-          inputFormatters: [_NoteBulletFormatter()],
-          decoration: InputDecoration(
-            hintText: 'Title',
-            hintStyle: TextStyle(
-              color: cs.onSurface.withValues(alpha: 0.3),
-              fontWeight: FontWeight.bold,
-              fontSize: bodyFontSize * 1.3,
+        return Column(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _controller,
+                focusNode: _focusNode,
+                maxLines: null,
+                expands: true,
+                keyboardType: TextInputType.multiline,
+                textAlignVertical: TextAlignVertical.top,
+                style: theme.textTheme.bodyLarge,
+                inputFormatters: [_NoteBulletFormatter()],
+                decoration: InputDecoration(
+                  hintText: 'Title',
+                  hintStyle: TextStyle(
+                    color: cs.onSurface.withValues(alpha: 0.3),
+                    fontWeight: FontWeight.bold,
+                    fontSize: bodyFontSize * 1.3,
+                  ),
+                  border: InputBorder.none,
+                  isDense: true,
+                  contentPadding: const EdgeInsets.all(16),
+                ),
+                onChanged: (_) => _scheduleSave(),
+              ),
             ),
-            border: InputBorder.none,
-            isDense: true,
-            contentPadding: const EdgeInsets.all(16),
-          ),
-          onChanged: (_) => _scheduleSave(),
+            _NoteSyncFooter(
+              note: note,
+              hasUnsavedEditorChanges: _hasUnsavedEditorChanges,
+            ),
+          ],
         );
       },
     );
+  }
+}
+
+class _NoteSyncFooter extends StatelessWidget {
+  const _NoteSyncFooter({
+    required this.note,
+    required this.hasUnsavedEditorChanges,
+  });
+
+  final Note note;
+  final bool hasUnsavedEditorChanges;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final color = theme.colorScheme.onSurface.withValues(alpha: 0.5);
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
+        child: Align(
+          alignment: Alignment.centerLeft,
+          child: Text(
+            _syncText(),
+            style: theme.textTheme.bodySmall?.copyWith(color: color),
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _syncText() {
+    if (hasUnsavedEditorChanges) return 'Editing...';
+    if (note.syncStatus == 'pending') return 'Pending sync';
+    final lastSyncedAt = note.lastSyncedAt;
+    if (lastSyncedAt == null) return 'Not synced yet';
+    return 'Synced ${_formatDateTime(lastSyncedAt.toLocal())}';
+  }
+
+  String _formatDateTime(DateTime dt) {
+    final months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    final hour12 = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
+    final minute = dt.minute.toString().padLeft(2, '0');
+    final suffix = dt.hour >= 12 ? 'PM' : 'AM';
+    return '${months[dt.month - 1]} ${dt.day}, ${dt.year} '
+        '$hour12:$minute $suffix';
   }
 }
 

@@ -1,0 +1,25 @@
+To bump versions, edit pubspec.yaml:
+
+Use a simple convention like:
+
+  - 1.0.0+1 initial release
+  - 1.0.1+2 bug fix
+  - 1.1.0+3 small feature release
+  - 2.0.0+4 major change
+
+The build number after + should always increase for each release you install/distribute.
+
+Then rebuild/install on each device.
+
+- macOS: flutter build macos --release
+    Output: build/macos/Build/Products/Release/slate.app
+- Android: flutter build apk --release
+    Output: build/app/outputs/flutter-apk/app-release.apk
+    
+The first part is the user-facing version, and the number after + is the build number.
+
+Settings will show:
+
+  Version 1.0.1 (2)
+
+
