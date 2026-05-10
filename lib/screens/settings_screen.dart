@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 import '../providers/auth_provider.dart';
 import '../providers/settings_providers.dart';
@@ -31,14 +32,16 @@ class SettingsScreen extends ConsumerWidget {
         children: [
           _SectionHeader(theme: theme, label: 'APPEARANCE'),
           SwitchListTile(
-            secondary: Icon(themeMode == ThemeMode.dark
-                ? Icons.dark_mode_outlined
-                : Icons.light_mode_outlined),
+            secondary: Icon(
+              themeMode == ThemeMode.dark
+                  ? Icons.dark_mode_outlined
+                  : Icons.light_mode_outlined,
+            ),
             title: Text(
-                themeMode == ThemeMode.dark ? 'Dark mode' : 'Light mode'),
+              themeMode == ThemeMode.dark ? 'Dark mode' : 'Light mode',
+            ),
             value: themeMode == ThemeMode.dark,
-            onChanged: (_) =>
-                ref.read(themeNotifierProvider.notifier).toggle(),
+            onChanged: (_) => ref.read(themeNotifierProvider.notifier).toggle(),
           ),
 
           const Divider(height: 24),
@@ -91,12 +94,26 @@ class SettingsScreen extends ConsumerWidget {
           ),
           ListTile(
             leading: Icon(Icons.logout, color: colorScheme.error),
-            title: Text(
-              'Sign out',
-              style: TextStyle(color: colorScheme.error),
-            ),
-            onTap: () =>
-                ref.read(supabaseClientProvider).auth.signOut(),
+            title: Text('Sign out', style: TextStyle(color: colorScheme.error)),
+            onTap: () => ref.read(supabaseClientProvider).auth.signOut(),
+          ),
+
+          const Divider(height: 24),
+          _SectionHeader(theme: theme, label: 'ABOUT'),
+
+          FutureBuilder<PackageInfo>(
+            future: PackageInfo.fromPlatform(),
+            builder: (context, snapshot) {
+              final info = snapshot.data;
+              final versionText = info == null
+                  ? 'Loading...'
+                  : 'Version ${info.version} (${info.buildNumber})';
+              return ListTile(
+                leading: const Icon(Icons.info_outline),
+                title: const Text('Slate'),
+                subtitle: Text(versionText),
+              );
+            },
           ),
         ],
       ),

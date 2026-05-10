@@ -20,6 +20,7 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
   String _lastSavedToday = '';
   bool _todayInitialized = false;
   String? _expandedEntryId;
+  DateTime? _lastAppliedTodayRemoteUpdate;
 
   static const _debounceDuration = Duration(milliseconds: 1200);
 
@@ -44,9 +45,40 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
     ref.read(journalEntriesProvider.notifier).save(_today, value);
   }
 
+  bool get _isTodayDirty =>
+      _todayInitialized && _todayController.text != _lastSavedToday;
+
   void _scheduleTodaySave() {
     _debounce?.cancel();
     _debounce = Timer(_debounceDuration, _flushTodayIfDirty);
+  }
+
+  void _applyTodayRemoteIfClean(JournalEntry? todayEntry) {
+    if (!_todayInitialized) {
+      _todayController.text = todayEntry?.content ?? '';
+      _lastSavedToday = todayEntry?.content ?? '';
+      _lastAppliedTodayRemoteUpdate = todayEntry?.updatedAt;
+      _todayInitialized = true;
+      return;
+    }
+
+    if (todayEntry == null || _isTodayDirty) return;
+    if (_lastAppliedTodayRemoteUpdate != null &&
+        !todayEntry.updatedAt.isAfter(_lastAppliedTodayRemoteUpdate!)) {
+      return;
+    }
+
+    final remoteContent = todayEntry.content;
+    final cursor = _todayController.selection.baseOffset.clamp(
+      0,
+      remoteContent.length,
+    );
+    _todayController.value = TextEditingValue(
+      text: remoteContent,
+      selection: TextSelection.collapsed(offset: cursor),
+    );
+    _lastSavedToday = remoteContent;
+    _lastAppliedTodayRemoteUpdate = todayEntry.updatedAt;
   }
 
   @override
@@ -74,18 +106,17 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
           final past = <JournalEntry>[];
           for (final e in entries) {
             final ed = DateTime(
-                e.entryDate.year, e.entryDate.month, e.entryDate.day);
+              e.entryDate.year,
+              e.entryDate.month,
+              e.entryDate.day,
+            );
             if (ed == todayKey) {
               todayEntry = e;
             } else {
               past.add(e);
             }
           }
-          if (!_todayInitialized) {
-            _todayController.text = todayEntry?.content ?? '';
-            _lastSavedToday = todayEntry?.content ?? '';
-            _todayInitialized = true;
-          }
+          _applyTodayRemoteIfClean(todayEntry);
 
           return ListView(
             padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
@@ -95,7 +126,9 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
                 const SizedBox(height: 12),
                 Padding(
                   padding: const EdgeInsets.symmetric(
-                      horizontal: 4, vertical: 8),
+                    horizontal: 4,
+                    vertical: 8,
+                  ),
                   child: Text(
                     'PREVIOUS',
                     style: theme.textTheme.labelLarge?.copyWith(
@@ -153,7 +186,10 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
   }
 
   Widget _pastEntryCard(
-      JournalEntry entry, ThemeData theme, ColorScheme colorScheme) {
+    JournalEntry entry,
+    ThemeData theme,
+    ColorScheme colorScheme,
+  ) {
     final isExpanded = _expandedEntryId == entry.id;
     final preview = () {
       final raw = entry.content.trim();
@@ -187,8 +223,7 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
                       child: Text(
                         du.formatDateGroupHeader(entry.entryDate),
                         style: theme.textTheme.bodyMedium?.copyWith(
-                          color: colorScheme.onSurface
-                              .withValues(alpha: 0.65),
+                          color: colorScheme.onSurface.withValues(alpha: 0.65),
                           fontWeight: FontWeight.w500,
                         ),
                       ),
@@ -226,8 +261,7 @@ class _ExpandedPastEntry extends ConsumerStatefulWidget {
   const _ExpandedPastEntry({required this.entry});
 
   @override
-  ConsumerState<_ExpandedPastEntry> createState() =>
-      _ExpandedPastEntryState();
+  ConsumerState<_ExpandedPastEntry> createState() => _ExpandedPastEntryState();
 }
 
 class _ExpandedPastEntryState extends ConsumerState<_ExpandedPastEntry> {

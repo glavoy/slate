@@ -69,6 +69,7 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
   bool _initialized = false;
   bool _autoFocusRequested = false;
   int _controllerGeneration = 0;
+  DateTime? _lastAppliedRemoteUpdate;
 
   static const _debounceDuration = Duration(milliseconds: 1000);
   static const _bullet = '• ';
@@ -126,6 +127,10 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
         .read(noteListProvider.notifier)
         .edit(widget.noteId, title: t, content: c);
   }
+
+  bool get _isDirty =>
+      _initialized &&
+      (_title != _lastSavedTitle || _content != _lastSavedContent);
 
   void _scheduleSave() {
     _debounce?.cancel();
@@ -222,6 +227,40 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
     return null;
   }
 
+  void _applyRemoteNoteIfClean(Note note) {
+    if (!_initialized) {
+      _controller.text = _buildInitial(note);
+      _lastSavedTitle = note.title;
+      _lastSavedContent = note.content;
+      _lastAppliedRemoteUpdate = note.updatedAt;
+      _initialized = true;
+      return;
+    }
+
+    if (_isDirty) return;
+    if (_lastAppliedRemoteUpdate != null &&
+        !note.updatedAt.isAfter(_lastAppliedRemoteUpdate!)) {
+      return;
+    }
+
+    final remoteText = _buildInitial(note);
+    if (remoteText == _controller.text) {
+      _lastSavedTitle = note.title;
+      _lastSavedContent = note.content;
+      _lastAppliedRemoteUpdate = note.updatedAt;
+      return;
+    }
+
+    final cursor = _controller.selection.baseOffset.clamp(0, remoteText.length);
+    _controller.value = TextEditingValue(
+      text: remoteText,
+      selection: TextSelection.collapsed(offset: cursor),
+    );
+    _lastSavedTitle = note.title;
+    _lastSavedContent = note.content;
+    _lastAppliedRemoteUpdate = note.updatedAt;
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -236,12 +275,7 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
         final note = _findNote(notes);
         if (note == null) return const Center(child: Text('Note not found'));
 
-        if (!_initialized) {
-          _controller.text = _buildInitial(note);
-          _lastSavedTitle = note.title;
-          _lastSavedContent = note.content;
-          _initialized = true;
-        }
+        _applyRemoteNoteIfClean(note);
         _requestTitleFocus();
 
         return TextField(

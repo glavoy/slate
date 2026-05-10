@@ -23,21 +23,13 @@ class SimpleListRepository {
       return SimpleList.fromJson(row);
     }
 
-    final now = nowIso();
-    _local.execute(
-      '''
-      INSERT INTO simple_list (
-        user_id, content, updated_at, sync_status, client_modified_at,
-        pending_delete
-      ) VALUES (?, ?, ?, 'pending', ?, 0)
-      ''',
-      [userId, '• ', now, now],
-    );
-    SyncService.instance.syncSoon();
-    return SimpleList.fromJson(
-      _local.selectOne('SELECT * FROM simple_list WHERE user_id = ?', [
-        userId,
-      ])!,
+    // Do not create a pending default row during the initial local read. On a
+    // fresh device that can race the first remote pull and overwrite an
+    // existing list from another device.
+    return SimpleList(
+      userId: userId,
+      content: '• ',
+      updatedAt: DateTime.now().toUtc(),
     );
   }
 

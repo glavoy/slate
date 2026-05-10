@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../local/local_database.dart';
@@ -64,14 +65,18 @@ class SyncService {
     }
 
     _syncing = true;
+    final previousSyncAt = local.getMeta('last_sync_at');
+    final syncStartedAt = nowIso();
     try {
+      await _pullRemote(client, local, user.id, since: previousSyncAt);
       await _pushPending(client, local, user.id);
-      await _pullRemote(client, local, user.id);
-      local.setMeta('last_sync_at', nowIso());
+      await _pullRemote(client, local, user.id, since: previousSyncAt);
+      local.setMeta('last_sync_at', syncStartedAt);
       _changes.add(null);
-    } catch (_) {
+    } catch (error, stackTrace) {
       // The app remains local-first. Failed sync attempts are retried on the
       // next app start, connectivity change, or local write.
+      _logSyncError('syncNow', error, stackTrace);
     } finally {
       _syncing = false;
       if (_syncRequested) {
@@ -109,13 +114,19 @@ class SyncService {
     try {
       final syncTime = nowIso();
       if (payload.eventType == PostgresChangeEvent.delete) {
-        final key = payload.oldRecord[table.keyColumn];
-        if (key != null) {
-          local.execute(
-            'DELETE FROM ${table.name} WHERE ${table.keyColumn} = ?',
-            [key],
-          );
-          _changes.add(null);
+        final row = payload.oldRecord;
+        if (row['user_id'] == null || row['user_id'] == user.id) {
+          final key = row[table.keyColumn];
+          if (key != null) {
+            local.execute(
+              '''
+              DELETE FROM ${table.name}
+              WHERE ${table.keyColumn} = ? AND user_id = ?
+              ''',
+              [key, user.id],
+            );
+            _changes.add(null);
+          }
         }
       } else {
         final row = payload.newRecord;
@@ -124,9 +135,10 @@ class SyncService {
           if (changed) _changes.add(null);
         }
       }
-    } catch (_) {
+    } catch (error, stackTrace) {
       // Fall through to a normal sync; realtime payload handling is an
       // acceleration path, not the authoritative merge path.
+      _logSyncError('realtime ${table.name}', error, stackTrace);
     } finally {
       syncSoon();
     }
@@ -169,8 +181,9 @@ class SyncService {
             ''',
             [syncTime, key],
           );
-        } catch (_) {
+        } catch (error, stackTrace) {
           // Leave the row pending; a later sync attempt can retry it.
+          _logSyncError('push ${table.name}', error, stackTrace);
         }
       }
     }
@@ -240,18 +253,24 @@ class SyncService {
   Future<void> _pullRemote(
     SupabaseClient client,
     LocalDatabase local,
-    String userId,
-  ) async {
+    String userId, {
+    String? since,
+  }) async {
     final syncTime = nowIso();
     for (final table in _tables) {
       try {
-        final dynamic response = await client.from(table.name).select();
+        dynamic query = client.from(table.name).select().eq('user_id', userId);
+        if (since != null) {
+          query = query.gte('updated_at', since);
+        }
+        final dynamic response = await query;
         final rows = (response as List).cast<Map<String, dynamic>>();
         for (final row in rows) {
           _applyRemoteRow(local, table, row, userId, syncTime);
         }
-      } catch (_) {
+      } catch (error, stackTrace) {
         // Continue pulling other tables even if one table is unavailable.
+        _logSyncError('pull ${table.name}', error, stackTrace);
       }
     }
   }
@@ -265,30 +284,53 @@ class SyncService {
   ) {
     final key = row[table.keyColumn];
     if (key == null) return false;
+    if (row['user_id'] != null && row['user_id'] != userId) return false;
 
-    if (row['sync_deleted_at'] != null) {
-      local.execute('DELETE FROM ${table.name} WHERE ${table.keyColumn} = ?', [
-        key,
-      ]);
-      return true;
-    }
-
-    final existing = local.selectOne(
-      'SELECT * FROM ${table.name} WHERE ${table.keyColumn} = ?',
-      [key],
-    );
+    final existing = _selectExistingLocal(local, table, row);
     if (existing != null && existing['sync_status'] == 'pending') {
-      final localTime = _parse(existing['client_modified_at']);
-      final remoteTime = _parse(row['updated_at']);
-      if (localTime != null &&
-          remoteTime != null &&
-          localTime.isAfter(remoteTime)) {
+      if (!remoteWinsPendingLocal(
+        localClientModifiedAt: existing['client_modified_at'],
+        remoteRow: row,
+      )) {
         return false;
       }
     }
 
+    if (row['sync_deleted_at'] != null) {
+      local.execute(
+        'DELETE FROM ${table.name} WHERE ${table.keyColumn} = ? AND user_id = ?',
+        [key, userId],
+      );
+      return true;
+    }
+
     _upsertLocalRemoteRow(local, table.name, row, userId, syncTime);
     return true;
+  }
+
+  Map<String, Object?>? _selectExistingLocal(
+    LocalDatabase local,
+    _SyncTable table,
+    Map<String, dynamic> row,
+  ) {
+    if (table.localConflict == 'user_id, entry_date') {
+      final userId = row['user_id'];
+      final entryDate = row['entry_date'];
+      if (userId != null && entryDate != null) {
+        final existing = local.selectOne(
+          '''
+          SELECT * FROM ${table.name}
+          WHERE user_id = ? AND entry_date = ?
+          ''',
+          [userId, entryDate],
+        );
+        if (existing != null) return existing;
+      }
+    }
+    return local.selectOne(
+      'SELECT * FROM ${table.name} WHERE ${table.keyColumn} = ?',
+      [row[table.keyColumn]],
+    );
   }
 
   Map<String, dynamic> _remotePayload(String table, Map<String, Object?> row) {
@@ -462,8 +504,30 @@ class SyncService {
     _ => const <String>{},
   };
 
-  DateTime? _parse(Object? value) =>
+  @visibleForTesting
+  static bool remoteWinsPendingLocal({
+    required Object? localClientModifiedAt,
+    required Map<String, dynamic> remoteRow,
+  }) {
+    final localTime = _parseTimestamp(localClientModifiedAt);
+    final remoteTime = _remoteModifiedAt(remoteRow);
+    if (localTime == null || remoteTime == null) return true;
+    return !localTime.isAfter(remoteTime);
+  }
+
+  static DateTime? _parseTimestamp(Object? value) =>
       value == null ? null : DateTime.tryParse(value.toString());
+
+  static DateTime? _remoteModifiedAt(Map<String, dynamic> row) =>
+      _parseTimestamp(
+        row['sync_deleted_at'] ?? row['updated_at'] ?? row['created_at'],
+      );
+
+  void _logSyncError(String operation, Object error, StackTrace stackTrace) {
+    if (!kDebugMode) return;
+    debugPrint('Slate sync $operation failed: $error');
+    debugPrintStack(stackTrace: stackTrace);
+  }
 }
 
 class _SyncTable {
