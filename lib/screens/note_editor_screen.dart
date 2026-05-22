@@ -25,11 +25,13 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
       appBar: AppBar(
         title: const Text('Note'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.check_box_outlined),
-            iconSize: 20,
-            tooltip: 'Toggle checkbox',
-            onPressed: _editorController.toggleCheckbox,
+          ExcludeFocus(
+            child: IconButton(
+              icon: const Icon(Icons.check_box_outlined),
+              iconSize: 20,
+              tooltip: 'Toggle checkbox',
+              onPressed: _editorController.toggleCheckbox,
+            ),
           ),
           IconButton(
             icon: const Icon(Icons.delete_outline),

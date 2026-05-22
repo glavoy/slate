@@ -233,11 +233,13 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
             ).push(MaterialPageRoute(builder: (_) => const _TrashScreen())),
           ),
           if (_selectedNoteId != null)
-            IconButton(
-              icon: const Icon(Icons.check_box_outlined),
-              iconSize: 20,
-              tooltip: 'Toggle checkbox',
-              onPressed: _editorController.toggleCheckbox,
+            ExcludeFocus(
+              child: IconButton(
+                icon: const Icon(Icons.check_box_outlined),
+                iconSize: 20,
+                tooltip: 'Toggle checkbox',
+                onPressed: _editorController.toggleCheckbox,
+              ),
             ),
         ],
       ),

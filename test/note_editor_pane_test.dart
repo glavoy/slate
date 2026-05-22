@@ -107,8 +107,8 @@ void main() {
     editorController.toggleCheckbox();
     await tester.pump();
 
-    expect(textField.controller!.text, 'Title\n☒ Task');
-    expect(textField.controller!.selection.baseOffset, 'Title\n☒ '.length);
+    expect(textField.controller!.text, 'Title\n☑ Task');
+    expect(textField.controller!.selection.baseOffset, 'Title\n☑ '.length);
 
     editorController.toggleCheckbox();
     await tester.pump();
@@ -183,10 +183,10 @@ void main() {
     final fieldFinder = find.byType(TextField);
     final textField = tester.widget<TextField>(fieldFinder);
     textField.controller!.selection = const TextSelection.collapsed(offset: 2);
-    await tester.tap(find.byKey(const ValueKey('note-checkbox-hotspot-6')));
+    await tester.tap(find.byKey(const ValueKey('note-checkbox-icon-6')));
     await tester.pump();
 
-    expect(textField.controller!.text, 'Title\n☒ Task');
+    expect(textField.controller!.text, 'Title\n☑ Task');
     expect(textField.controller!.selection.baseOffset, 2);
     expect(textField.focusNode!.hasFocus, isTrue);
   });
@@ -214,7 +214,7 @@ void main() {
 
     final mouseRegions = tester.widgetList<MouseRegion>(find.byType(MouseRegion));
     expect(
-      mouseRegions.any((region) => region.cursor == SystemMouseCursors.basic),
+      mouseRegions.any((region) => region.cursor == SystemMouseCursors.click),
       isTrue,
     );
   });
