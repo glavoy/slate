@@ -1,0 +1,545 @@
+[
+  {
+    "project_schema": {
+      "tables": [
+        {
+          "table_name": "journal_entries",
+          "columns": [
+            {
+              "column": "id",
+              "type": "uuid",
+              "nullable": false,
+              "default": "gen_random_uuid()"
+            },
+            {
+              "column": "user_id",
+              "type": "uuid",
+              "nullable": false,
+              "default": "auth.uid()"
+            },
+            {
+              "column": "entry_date",
+              "type": "date",
+              "nullable": false,
+              "default": "CURRENT_DATE"
+            },
+            {
+              "column": "content",
+              "type": "text",
+              "nullable": false,
+              "default": "''::text"
+            },
+            {
+              "column": "created_at",
+              "type": "timestamp with time zone",
+              "nullable": false,
+              "default": "now()"
+            },
+            {
+              "column": "updated_at",
+              "type": "timestamp with time zone",
+              "nullable": false,
+              "default": "now()"
+            },
+            {
+              "column": "sync_deleted_at",
+              "type": "timestamp with time zone",
+              "nullable": true,
+              "default": null
+            }
+          ]
+        },
+        {
+          "table_name": "notes",
+          "columns": [
+            {
+              "column": "id",
+              "type": "uuid",
+              "nullable": false,
+              "default": "gen_random_uuid()"
+            },
+            {
+              "column": "user_id",
+              "type": "uuid",
+              "nullable": false,
+              "default": "auth.uid()"
+            },
+            {
+              "column": "title",
+              "type": "text",
+              "nullable": false,
+              "default": "''::text"
+            },
+            {
+              "column": "content",
+              "type": "text",
+              "nullable": false,
+              "default": "''::text"
+            },
+            {
+              "column": "created_at",
+              "type": "timestamp with time zone",
+              "nullable": false,
+              "default": "now()"
+            },
+            {
+              "column": "updated_at",
+              "type": "timestamp with time zone",
+              "nullable": false,
+              "default": "now()"
+            },
+            {
+              "column": "pinned",
+              "type": "boolean",
+              "nullable": false,
+              "default": "false"
+            },
+            {
+              "column": "deleted_at",
+              "type": "timestamp with time zone",
+              "nullable": true,
+              "default": null
+            },
+            {
+              "column": "sync_deleted_at",
+              "type": "timestamp with time zone",
+              "nullable": true,
+              "default": null
+            }
+          ]
+        },
+        {
+          "table_name": "simple_list",
+          "columns": [
+            {
+              "column": "user_id",
+              "type": "uuid",
+              "nullable": false,
+              "default": "auth.uid()"
+            },
+            {
+              "column": "content",
+              "type": "text",
+              "nullable": false,
+              "default": "'• '::text"
+            },
+            {
+              "column": "updated_at",
+              "type": "timestamp with time zone",
+              "nullable": false,
+              "default": "now()"
+            },
+            {
+              "column": "sync_deleted_at",
+              "type": "timestamp with time zone",
+              "nullable": true,
+              "default": null
+            }
+          ]
+        },
+        {
+          "table_name": "tasks",
+          "columns": [
+            {
+              "column": "id",
+              "type": "uuid",
+              "nullable": false,
+              "default": "gen_random_uuid()"
+            },
+            {
+              "column": "title",
+              "type": "text",
+              "nullable": false,
+              "default": null
+            },
+            {
+              "column": "due_date",
+              "type": "date",
+              "nullable": false,
+              "default": null
+            },
+            {
+              "column": "notes",
+              "type": "text",
+              "nullable": true,
+              "default": null
+            },
+            {
+              "column": "is_done",
+              "type": "boolean",
+              "nullable": false,
+              "default": "false"
+            },
+            {
+              "column": "recurrence",
+              "type": "USER-DEFINED",
+              "nullable": false,
+              "default": "'none'::recurrence_type"
+            },
+            {
+              "column": "created_at",
+              "type": "timestamp with time zone",
+              "nullable": false,
+              "default": "now()"
+            },
+            {
+              "column": "completed_at",
+              "type": "timestamp with time zone",
+              "nullable": true,
+              "default": null
+            },
+            {
+              "column": "series_id",
+              "type": "uuid",
+              "nullable": true,
+              "default": null
+            },
+            {
+              "column": "due_time",
+              "type": "time without time zone",
+              "nullable": true,
+              "default": null
+            },
+            {
+              "column": "user_id",
+              "type": "uuid",
+              "nullable": false,
+              "default": "auth.uid()"
+            },
+            {
+              "column": "updated_at",
+              "type": "timestamp with time zone",
+              "nullable": false,
+              "default": "now()"
+            },
+            {
+              "column": "sync_deleted_at",
+              "type": "timestamp with time zone",
+              "nullable": true,
+              "default": null
+            }
+          ]
+        },
+        {
+          "table_name": "tracker_entries",
+          "columns": [
+            {
+              "column": "id",
+              "type": "uuid",
+              "nullable": false,
+              "default": "gen_random_uuid()"
+            },
+            {
+              "column": "metric_id",
+              "type": "uuid",
+              "nullable": false,
+              "default": null
+            },
+            {
+              "column": "user_id",
+              "type": "uuid",
+              "nullable": false,
+              "default": "auth.uid()"
+            },
+            {
+              "column": "value",
+              "type": "numeric",
+              "nullable": false,
+              "default": null
+            },
+            {
+              "column": "recorded_at",
+              "type": "timestamp with time zone",
+              "nullable": false,
+              "default": "now()"
+            },
+            {
+              "column": "note",
+              "type": "text",
+              "nullable": true,
+              "default": null
+            },
+            {
+              "column": "updated_at",
+              "type": "timestamp with time zone",
+              "nullable": false,
+              "default": "now()"
+            },
+            {
+              "column": "sync_deleted_at",
+              "type": "timestamp with time zone",
+              "nullable": true,
+              "default": null
+            }
+          ]
+        },
+        {
+          "table_name": "tracker_metrics",
+          "columns": [
+            {
+              "column": "id",
+              "type": "uuid",
+              "nullable": false,
+              "default": "gen_random_uuid()"
+            },
+            {
+              "column": "user_id",
+              "type": "uuid",
+              "nullable": false,
+              "default": "auth.uid()"
+            },
+            {
+              "column": "name",
+              "type": "text",
+              "nullable": false,
+              "default": null
+            },
+            {
+              "column": "unit",
+              "type": "text",
+              "nullable": true,
+              "default": null
+            },
+            {
+              "column": "created_at",
+              "type": "timestamp with time zone",
+              "nullable": false,
+              "default": "now()"
+            },
+            {
+              "column": "updated_at",
+              "type": "timestamp with time zone",
+              "nullable": false,
+              "default": "now()"
+            },
+            {
+              "column": "sync_deleted_at",
+              "type": "timestamp with time zone",
+              "nullable": true,
+              "default": null
+            }
+          ]
+        }
+      ],
+      "rls": [
+        {
+          "table": "journal_entries",
+          "policy": "Users access own journal",
+          "command": "ALL",
+          "roles": [
+            "public"
+          ],
+          "using_expr": "(auth.uid() = user_id)",
+          "with_check": "(auth.uid() = user_id)"
+        },
+        {
+          "table": "notes",
+          "policy": "Users access own notes",
+          "command": "ALL",
+          "roles": [
+            "public"
+          ],
+          "using_expr": "(auth.uid() = user_id)",
+          "with_check": "(auth.uid() = user_id)"
+        },
+        {
+          "table": "simple_list",
+          "policy": "Users access own simple list",
+          "command": "ALL",
+          "roles": [
+            "public"
+          ],
+          "using_expr": "(auth.uid() = user_id)",
+          "with_check": "(auth.uid() = user_id)"
+        },
+        {
+          "table": "tasks",
+          "policy": "Users access own tasks",
+          "command": "ALL",
+          "roles": [
+            "public"
+          ],
+          "using_expr": "(auth.uid() = user_id)",
+          "with_check": "(auth.uid() = user_id)"
+        },
+        {
+          "table": "tracker_entries",
+          "policy": "Users access own entries",
+          "command": "ALL",
+          "roles": [
+            "public"
+          ],
+          "using_expr": "(auth.uid() = user_id)",
+          "with_check": "(auth.uid() = user_id)"
+        },
+        {
+          "table": "tracker_metrics",
+          "policy": "Users access own metrics",
+          "command": "ALL",
+          "roles": [
+            "public"
+          ],
+          "using_expr": "(auth.uid() = user_id)",
+          "with_check": "(auth.uid() = user_id)"
+        }
+      ],
+      "rls_status": [
+        {
+          "table": "journal_entries",
+          "rls_enabled": true,
+          "rls_forced": false
+        },
+        {
+          "table": "notes",
+          "rls_enabled": true,
+          "rls_forced": false
+        },
+        {
+          "table": "simple_list",
+          "rls_enabled": true,
+          "rls_forced": false
+        },
+        {
+          "table": "tasks",
+          "rls_enabled": true,
+          "rls_forced": false
+        },
+        {
+          "table": "tracker_entries",
+          "rls_enabled": true,
+          "rls_forced": false
+        },
+        {
+          "table": "tracker_metrics",
+          "rls_enabled": true,
+          "rls_forced": false
+        }
+      ],
+      "functions": null,
+      "foreign_keys": [
+        {
+          "table": "tracker_entries",
+          "column": "metric_id",
+          "references_table": "tracker_metrics",
+          "references_column": "id",
+          "delete_rule": "CASCADE"
+        }
+      ],
+      "indexes": [
+        {
+          "table": "journal_entries",
+          "index": "journal_entries_pkey",
+          "definition": "CREATE UNIQUE INDEX journal_entries_pkey ON public.journal_entries USING btree (id)"
+        },
+        {
+          "table": "journal_entries",
+          "index": "journal_entries_user_id_entry_date_key",
+          "definition": "CREATE UNIQUE INDEX journal_entries_user_id_entry_date_key ON public.journal_entries USING btree (user_id, entry_date)"
+        },
+        {
+          "table": "journal_entries",
+          "index": "journal_entries_user_updated_idx",
+          "definition": "CREATE INDEX journal_entries_user_updated_idx ON public.journal_entries USING btree (user_id, updated_at)"
+        },
+        {
+          "table": "journal_entries",
+          "index": "journal_user_date_idx",
+          "definition": "CREATE INDEX journal_user_date_idx ON public.journal_entries USING btree (user_id, entry_date DESC)"
+        },
+        {
+          "table": "notes",
+          "index": "notes_pkey",
+          "definition": "CREATE UNIQUE INDEX notes_pkey ON public.notes USING btree (id)"
+        },
+        {
+          "table": "notes",
+          "index": "notes_updated_at_idx",
+          "definition": "CREATE INDEX notes_updated_at_idx ON public.notes USING btree (updated_at DESC)"
+        },
+        {
+          "table": "notes",
+          "index": "notes_user_id_idx",
+          "definition": "CREATE INDEX notes_user_id_idx ON public.notes USING btree (user_id)"
+        },
+        {
+          "table": "notes",
+          "index": "notes_user_updated_idx",
+          "definition": "CREATE INDEX notes_user_updated_idx ON public.notes USING btree (user_id, updated_at)"
+        },
+        {
+          "table": "simple_list",
+          "index": "simple_list_pkey",
+          "definition": "CREATE UNIQUE INDEX simple_list_pkey ON public.simple_list USING btree (user_id)"
+        },
+        {
+          "table": "simple_list",
+          "index": "simple_list_user_updated_idx",
+          "definition": "CREATE INDEX simple_list_user_updated_idx ON public.simple_list USING btree (user_id, updated_at)"
+        },
+        {
+          "table": "tasks",
+          "index": "tasks_pkey",
+          "definition": "CREATE UNIQUE INDEX tasks_pkey ON public.tasks USING btree (id)"
+        },
+        {
+          "table": "tasks",
+          "index": "tasks_series_id_idx",
+          "definition": "CREATE INDEX tasks_series_id_idx ON public.tasks USING btree (series_id)"
+        },
+        {
+          "table": "tasks",
+          "index": "tasks_user_id_idx",
+          "definition": "CREATE INDEX tasks_user_id_idx ON public.tasks USING btree (user_id)"
+        },
+        {
+          "table": "tasks",
+          "index": "tasks_user_updated_idx",
+          "definition": "CREATE INDEX tasks_user_updated_idx ON public.tasks USING btree (user_id, updated_at)"
+        },
+        {
+          "table": "tracker_entries",
+          "index": "tracker_entries_metric_idx",
+          "definition": "CREATE INDEX tracker_entries_metric_idx ON public.tracker_entries USING btree (metric_id, recorded_at DESC)"
+        },
+        {
+          "table": "tracker_entries",
+          "index": "tracker_entries_pkey",
+          "definition": "CREATE UNIQUE INDEX tracker_entries_pkey ON public.tracker_entries USING btree (id)"
+        },
+        {
+          "table": "tracker_entries",
+          "index": "tracker_entries_user_updated_idx",
+          "definition": "CREATE INDEX tracker_entries_user_updated_idx ON public.tracker_entries USING btree (user_id, updated_at)"
+        },
+        {
+          "table": "tracker_metrics",
+          "index": "tracker_metrics_pkey",
+          "definition": "CREATE UNIQUE INDEX tracker_metrics_pkey ON public.tracker_metrics USING btree (id)"
+        },
+        {
+          "table": "tracker_metrics",
+          "index": "tracker_metrics_user_idx",
+          "definition": "CREATE INDEX tracker_metrics_user_idx ON public.tracker_metrics USING btree (user_id)"
+        },
+        {
+          "table": "tracker_metrics",
+          "index": "tracker_metrics_user_updated_idx",
+          "definition": "CREATE INDEX tracker_metrics_user_updated_idx ON public.tracker_metrics USING btree (user_id, updated_at)"
+        }
+      ],
+      "enums": [
+        {
+          "name": "recurrence_type",
+          "values": [
+            "none",
+            "daily",
+            "weekly",
+            "monthly",
+            "yearly"
+          ]
+        }
+      ],
+      "triggers": null
+    }
+  }
+]

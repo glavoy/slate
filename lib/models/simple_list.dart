@@ -7,15 +7,11 @@ DateTime _dateFromJson(dynamic value) => DateTime.parse(value as String);
 String _dateToJson(DateTime dt) => dt.toIso8601String();
 
 @freezed
-class SimpleList with _$SimpleList {
+abstract class SimpleList with _$SimpleList {
   const factory SimpleList({
     @JsonKey(name: 'user_id') required String userId,
     @Default('') String content,
-    @JsonKey(
-      name: 'updated_at',
-      fromJson: _dateFromJson,
-      toJson: _dateToJson,
-    )
+    @JsonKey(name: 'updated_at', fromJson: _dateFromJson, toJson: _dateToJson)
     required DateTime updatedAt,
   }) = _SimpleList;
 

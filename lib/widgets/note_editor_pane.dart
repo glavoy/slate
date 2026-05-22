@@ -63,6 +63,8 @@ class NoteEditorPane extends ConsumerStatefulWidget {
 }
 
 class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
+  static const _editorPadding = EdgeInsets.all(16);
+
   late final _NoteController _controller;
   final _focusNode = FocusNode();
   Timer? _debounce;
@@ -77,7 +79,9 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
   _saveWithoutProviderRefresh;
 
   static const _debounceDuration = Duration(milliseconds: 1000);
-  static const _checkbox = '☐ ';
+  static const _uncheckedCheckbox = '☐ ';
+  static const _checkedCheckbox = '☒ ';
+  static const _legacyCheckedCheckbox = '☑ ';
 
   @override
   void initState() {
@@ -188,10 +192,44 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
   }
 
   void _toggleCheckbox() {
-    final text = _controller.text;
+    _toggleCheckboxAtCursor(restoreFocus: true);
+  }
+
+  int _cursorForMarkerToggle({
+    required int cursor,
+    required int lineStart,
+    required String oldMarker,
+    required String newMarker,
+  }) {
+    if (cursor <= lineStart + oldMarker.length) {
+      return lineStart + newMarker.length;
+    }
+    return cursor - oldMarker.length + newMarker.length;
+  }
+
+  void _toggleCheckboxAtCursor({
+    required bool restoreFocus,
+    bool onlyWhenCursorInsideMarker = false,
+  }) {
     final sel = _controller.selection;
     if (!sel.isValid) return;
     final cursor = sel.isCollapsed ? sel.baseOffset : sel.start;
+    _toggleCheckboxAtOffset(
+      offset: cursor,
+      selectionAfterToggle: null,
+      restoreFocus: restoreFocus,
+      onlyWhenOffsetInsideMarker: onlyWhenCursorInsideMarker,
+    );
+  }
+
+  void _toggleCheckboxAtOffset({
+    required int offset,
+    required TextSelection? selectionAfterToggle,
+    required bool restoreFocus,
+    bool onlyWhenOffsetInsideMarker = false,
+  }) {
+    final text = _controller.text;
+    final cursor = offset;
 
     // Only apply to body lines (after the title's first \n)
     final firstNewline = text.indexOf('\n');
@@ -202,29 +240,159 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
     final lineEnd = lineEndRaw < 0 ? text.length : lineEndRaw;
     final line = text.substring(lineStart, lineEnd);
 
-    final String newText;
-    final int newCursor;
+    final existingMarker = _existingCheckboxMarker(line);
+    if (onlyWhenOffsetInsideMarker && existingMarker == null) return;
+    if (onlyWhenOffsetInsideMarker &&
+        cursor > lineStart + existingMarker!.length) {
+      return;
+    }
 
-    if (line.startsWith(_checkbox)) {
+    final String newText;
+    final int fallbackCursor;
+
+    if (line.startsWith(_uncheckedCheckbox)) {
       newText =
           text.substring(0, lineStart) +
-          line.substring(_checkbox.length) +
+          _checkedCheckbox +
+          line.substring(_uncheckedCheckbox.length) +
           text.substring(lineEnd);
-      newCursor = (cursor - _checkbox.length).clamp(
-        lineStart,
-        lineStart + line.length - _checkbox.length,
+      fallbackCursor = _cursorForMarkerToggle(
+        cursor: cursor,
+        lineStart: lineStart,
+        oldMarker: _uncheckedCheckbox,
+        newMarker: _checkedCheckbox,
+      );
+    } else if (line.startsWith(_checkedCheckbox) ||
+        line.startsWith(_legacyCheckedCheckbox)) {
+      final checkedMarker = line.startsWith(_checkedCheckbox)
+          ? _checkedCheckbox
+          : _legacyCheckedCheckbox;
+      newText =
+          text.substring(0, lineStart) +
+          _uncheckedCheckbox +
+          line.substring(checkedMarker.length) +
+          text.substring(lineEnd);
+      fallbackCursor = _cursorForMarkerToggle(
+        cursor: cursor,
+        lineStart: lineStart,
+        oldMarker: checkedMarker,
+        newMarker: _uncheckedCheckbox,
       );
     } else {
       newText =
-          text.substring(0, lineStart) + _checkbox + text.substring(lineStart);
-      newCursor = cursor + _checkbox.length;
+          text.substring(0, lineStart) +
+          _uncheckedCheckbox +
+          text.substring(lineStart);
+      fallbackCursor = lineStart + _uncheckedCheckbox.length;
     }
 
+    final newSelection =
+        selectionAfterToggle?.copyWith(
+          baseOffset: selectionAfterToggle.baseOffset.clamp(0, newText.length),
+          extentOffset: selectionAfterToggle.extentOffset.clamp(
+            0,
+            newText.length,
+          ),
+        ) ??
+        TextSelection.collapsed(
+          offset: fallbackCursor.clamp(0, newText.length),
+        );
     _controller.value = TextEditingValue(
       text: newText,
-      selection: TextSelection.collapsed(offset: newCursor),
+      selection: newSelection,
     );
+    if (restoreFocus) {
+      _restoreEditorFocus(newSelection.extentOffset);
+    }
     _scheduleSave();
+  }
+
+  String? _existingCheckboxMarker(String line) {
+    if (line.startsWith(_uncheckedCheckbox)) return _uncheckedCheckbox;
+    if (line.startsWith(_checkedCheckbox)) return _checkedCheckbox;
+    if (line.startsWith(_legacyCheckedCheckbox)) return _legacyCheckedCheckbox;
+    return null;
+  }
+
+  List<_CheckboxHotspot> _buildCheckboxHotspots({
+    required BuildContext context,
+    required TextStyle baseStyle,
+    required double maxWidth,
+  }) {
+    final text = _controller.text;
+    final newlineIndex = text.indexOf('\n');
+    if (newlineIndex == -1) return const [];
+
+    final contentWidth = maxWidth - _editorPadding.horizontal;
+    if (contentWidth <= 0) return const [];
+
+    final painter = TextPainter(
+      text: _controller.buildTextSpan(
+        context: context,
+        style: baseStyle,
+        withComposing: true,
+      ),
+      textDirection: Directionality.of(context),
+      textScaler: MediaQuery.textScalerOf(context),
+    )..layout(maxWidth: contentWidth);
+
+    final body = text.substring(newlineIndex);
+    final bodyLines = body.split('\n');
+    final hotspots = <_CheckboxHotspot>[];
+    var absoluteOffset = newlineIndex;
+
+    for (var i = 0; i < bodyLines.length; i++) {
+      final line = bodyLines[i];
+      if (i > 0) {
+        absoluteOffset += 1;
+      }
+      final lineStart = absoluteOffset;
+      final marker = _existingCheckboxMarker(line);
+      if (marker != null) {
+        final boxes = painter.getBoxesForSelection(
+          TextSelection(
+            baseOffset: lineStart,
+            extentOffset: lineStart + marker.length,
+          ),
+        );
+        for (final box in boxes) {
+          hotspots.add(
+            _CheckboxHotspot(
+              textOffset: lineStart,
+              left: _editorPadding.left + box.left,
+              top: _editorPadding.top + box.top,
+              width: (box.right - box.left).abs(),
+              height: (box.bottom - box.top).abs(),
+            ),
+          );
+        }
+      }
+      absoluteOffset += line.length;
+    }
+
+    return hotspots;
+  }
+
+  void _toggleCheckboxFromOverlay(int offset) {
+    final selection = _controller.selection;
+    _toggleCheckboxAtOffset(
+      offset: offset,
+      selectionAfterToggle: selection.isValid ? selection : null,
+      restoreFocus: false,
+    );
+    if (!_focusNode.hasFocus) {
+      _focusNode.requestFocus();
+    }
+  }
+
+  void _restoreEditorFocus(int cursor) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _focusNode.requestFocus();
+      _controller.selection = TextSelection.collapsed(
+        offset: cursor.clamp(0, _controller.text.length),
+      );
+    });
   }
 
   Future<void> _confirmDelete(BuildContext context) async {
@@ -299,7 +467,8 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
-    final bodyFontSize = theme.textTheme.bodyLarge?.fontSize ?? 16.0;
+    final bodyStyle = theme.textTheme.bodyLarge ?? const TextStyle(fontSize: 16);
+    final bodyFontSize = bodyStyle.fontSize ?? 16.0;
     final asyncNotes = ref.watch(noteListProvider);
 
     return asyncNotes.when(
@@ -322,41 +491,89 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
         _applyRemoteNoteIfClean(note);
         _requestTitleFocus();
 
-        return Column(
-          children: [
-            Expanded(
-              child: TextField(
-                controller: _controller,
-                focusNode: _focusNode,
-                maxLines: null,
-                expands: true,
-                keyboardType: TextInputType.multiline,
-                textAlignVertical: TextAlignVertical.top,
-                style: theme.textTheme.bodyLarge,
-                inputFormatters: [_NoteListFormatter()],
-                decoration: InputDecoration(
-                  hintText: 'Title',
-                  hintStyle: TextStyle(
-                    color: cs.onSurface.withValues(alpha: 0.3),
-                    fontWeight: FontWeight.bold,
-                    fontSize: bodyFontSize * 1.3,
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final hotspots = _buildCheckboxHotspots(
+              context: context,
+              baseStyle: bodyStyle,
+              maxWidth: constraints.maxWidth,
+            );
+            return Column(
+              children: [
+                Expanded(
+                  child: Stack(
+                    children: [
+                      TextField(
+                        controller: _controller,
+                        focusNode: _focusNode,
+                        maxLines: null,
+                        expands: true,
+                        keyboardType: TextInputType.multiline,
+                        textAlignVertical: TextAlignVertical.top,
+                        style: bodyStyle,
+                        inputFormatters: [_NoteListFormatter()],
+                        decoration: InputDecoration(
+                          hintText: 'Title',
+                          hintStyle: TextStyle(
+                            color: cs.onSurface.withValues(alpha: 0.3),
+                            fontWeight: FontWeight.bold,
+                            fontSize: bodyFontSize * 1.3,
+                          ),
+                          border: InputBorder.none,
+                          isDense: true,
+                          contentPadding: _editorPadding,
+                        ),
+                        onChanged: (_) => _scheduleSave(),
+                      ),
+                      ...hotspots.map(
+                        (hotspot) => Positioned(
+                          left: hotspot.left,
+                          top: hotspot.top,
+                          width: hotspot.width,
+                          height: hotspot.height,
+                          child: MouseRegion(
+                            key: ValueKey(
+                              'note-checkbox-hotspot-${hotspot.textOffset}',
+                            ),
+                            cursor: SystemMouseCursors.basic,
+                            child: GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onTap: () =>
+                                  _toggleCheckboxFromOverlay(hotspot.textOffset),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                  border: InputBorder.none,
-                  isDense: true,
-                  contentPadding: const EdgeInsets.all(16),
                 ),
-                onChanged: (_) => _scheduleSave(),
-              ),
-            ),
-            _NoteSyncFooter(
-              note: note,
-              hasUnsavedEditorChanges: _hasUnsavedEditorChanges,
-            ),
-          ],
+                _NoteSyncFooter(
+                  note: note,
+                  hasUnsavedEditorChanges: _hasUnsavedEditorChanges,
+                ),
+              ],
+            );
+          },
         );
       },
     );
   }
+}
+
+class _CheckboxHotspot {
+  const _CheckboxHotspot({
+    required this.textOffset,
+    required this.left,
+    required this.top,
+    required this.width,
+    required this.height,
+  });
+
+  final int textOffset;
+  final double left;
+  final double top;
+  final double width;
+  final double height;
 }
 
 class _NoteSyncFooter extends StatelessWidget {
@@ -450,7 +667,9 @@ class _NoteController extends TextEditingController {
 }
 
 class _NoteListFormatter extends TextInputFormatter {
-  static const _checkbox = '☐ ';
+  static const _uncheckedCheckbox = '☐ ';
+  static const _checkedCheckbox = '☒ ';
+  static const _legacyCheckedCheckbox = '☑ ';
   static const _hyphen = '- ';
 
   @override
@@ -490,7 +709,11 @@ class _NoteListFormatter extends TextInputFormatter {
   }
 
   String? _continuationMarker(String line) {
-    if (line.startsWith(_checkbox)) return _checkbox;
+    if (line.startsWith(_uncheckedCheckbox) ||
+        line.startsWith(_checkedCheckbox) ||
+        line.startsWith(_legacyCheckedCheckbox)) {
+      return _uncheckedCheckbox;
+    }
     if (line.startsWith(_hyphen)) return _hyphen;
     if (line.startsWith('-') && line.length > 1) return _hyphen;
     return null;

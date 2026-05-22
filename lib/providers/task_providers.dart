@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../models/task.dart';
 import '../models/recurrence.dart';
@@ -11,7 +10,13 @@ import 'supabase_provider.dart';
 
 part 'task_providers.g.dart';
 
-final showAllCompletedProvider = StateProvider<bool>((ref) => false);
+@riverpod
+class ShowAllCompleted extends _$ShowAllCompleted {
+  @override
+  bool build() => false;
+
+  void toggle() => state = !state;
+}
 
 @riverpod
 class TaskList extends _$TaskList {
@@ -135,14 +140,14 @@ class CompletedTaskList extends _$CompletedTaskList {
 
 @riverpod
 // ignore: deprecated_member_use_from_same_package
-List<Task> overdueTasks(OverdueTasksRef ref) {
-  final tasks = ref.watch(taskListProvider).valueOrNull ?? [];
+List<Task> overdueTasks(Ref ref) {
+  final tasks = ref.watch(taskListProvider).value ?? [];
   return tasks.where((t) => isOverdue(t.dueDate, t.dueTime)).toList();
 }
 
 @riverpod
 // ignore: deprecated_member_use_from_same_package
-List<Task> upcomingTasks(UpcomingTasksRef ref) {
-  final tasks = ref.watch(taskListProvider).valueOrNull ?? [];
+List<Task> upcomingTasks(Ref ref) {
+  final tasks = ref.watch(taskListProvider).value ?? [];
   return tasks.where((t) => !isOverdue(t.dueDate, t.dueTime)).toList();
 }

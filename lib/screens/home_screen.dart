@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../providers/settings_providers.dart';
 import '../providers/task_providers.dart';
 import '../widgets/add_edit_task_sheet.dart';
 import '../widgets/calendar_view.dart';
@@ -74,6 +75,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   Widget _buildListView(ThemeData theme, ColorScheme colorScheme) {
+    final showCompletedTasks = ref.watch(showCompletedTasksNotifierProvider);
     final taskListAsync = ref.watch(taskListProvider);
     final overdue = ref.watch(overdueTasksProvider);
     final upcoming = ref.watch(upcomingTasksProvider);
@@ -170,8 +172,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               data: (completed) => completed.isNotEmpty
                   ? TextButton(
                       onPressed: () =>
-                          ref.read(showAllCompletedProvider.notifier).state =
-                              !showAllCompleted,
+                          ref.read(showAllCompletedProvider.notifier).toggle(),
                       style: TextButton.styleFrom(
                         visualDensity: VisualDensity.compact,
                       ),
@@ -187,47 +188,49 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     return Column(
       children: [
         Expanded(child: activeTasks),
-        const Divider(height: 1),
-        if (_completedExpanded)
-          Flexible(
-            flex: 0,
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                maxHeight: MediaQuery.of(context).size.height * 0.3,
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  completedHeader,
-                  Expanded(
-                    child: completedAsync.when(
-                      loading: () =>
-                          const Center(child: CircularProgressIndicator()),
-                      error: (_, _) => const SizedBox.shrink(),
-                      data: (completed) => completed.isEmpty
-                          ? Center(
-                              child: Text(
-                                'No completed tasks',
-                                style: TextStyle(
-                                  color: colorScheme.onSurface.withValues(
-                                    alpha: 0.35,
+        if (showCompletedTasks) ...[
+          const Divider(height: 1),
+          if (_completedExpanded)
+            Flexible(
+              flex: 0,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(context).size.height * 0.3,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    completedHeader,
+                    Expanded(
+                      child: completedAsync.when(
+                        loading: () =>
+                            const Center(child: CircularProgressIndicator()),
+                        error: (_, _) => const SizedBox.shrink(),
+                        data: (completed) => completed.isEmpty
+                            ? Center(
+                                child: Text(
+                                  'No completed tasks',
+                                  style: TextStyle(
+                                    color: colorScheme.onSurface.withValues(
+                                      alpha: 0.35,
+                                    ),
                                   ),
                                 ),
+                              )
+                            : ListView.builder(
+                                itemCount: completed.length,
+                                itemBuilder: (_, i) =>
+                                    CompletedTaskCard(task: completed[i]),
                               ),
-                            )
-                          : ListView.builder(
-                              itemCount: completed.length,
-                              itemBuilder: (_, i) =>
-                                  CompletedTaskCard(task: completed[i]),
-                            ),
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-          )
-        else
-          completedHeader,
+            )
+          else
+            completedHeader,
+        ],
       ],
     );
   }
@@ -236,11 +239,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final showTaskQuickList = ref.watch(showTaskQuickListNotifierProvider);
 
     final body = _view == _TasksView.list
         ? Column(
             children: [
-              _buildSimpleListSection(theme, colorScheme),
+              if (showTaskQuickList)
+                _buildSimpleListSection(theme, colorScheme),
               Expanded(child: _buildListView(theme, colorScheme)),
             ],
           )
@@ -248,7 +253,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                _buildSimpleListSection(theme, colorScheme),
+                if (showTaskQuickList)
+                  _buildSimpleListSection(theme, colorScheme),
                 CalendarView(
                   initialSelectedDay: _selectedCalendarDay,
                   onDaySelected: (day) =>

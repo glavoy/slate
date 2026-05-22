@@ -11,7 +11,7 @@ DateTime? _dateFromJsonNullable(dynamic value) =>
 String? _dateToJsonNullable(DateTime? dt) => dt?.toIso8601String();
 
 @freezed
-class Note with _$Note {
+abstract class Note with _$Note {
   const factory Note({
     required String id,
     @JsonKey(name: 'user_id') required String userId,

@@ -15,15 +15,11 @@ RecurrenceType _recurrenceFromJson(String value) =>
 String _recurrenceToJson(RecurrenceType r) => r.toJson();
 
 @freezed
-class Task with _$Task {
+abstract class Task with _$Task {
   const factory Task({
     required String id,
     required String title,
-    @JsonKey(
-      name: 'due_date',
-      fromJson: _dateFromJson,
-      toJson: _dateToJson,
-    )
+    @JsonKey(name: 'due_date', fromJson: _dateFromJson, toJson: _dateToJson)
     required DateTime dueDate,
     String? notes,
     @JsonKey(name: 'is_done') @Default(false) bool isDone,

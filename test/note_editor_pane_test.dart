@@ -57,7 +57,7 @@ void main() {
     expect(textField.controller!.selection.baseOffset, localText.length);
   });
 
-  testWidgets('controller toggles checkbox marker on body lines', (
+  testWidgets('controller inserts and toggles checkbox state on body lines', (
     tester,
   ) async {
     final editorController = NoteEditorController();
@@ -96,11 +96,25 @@ void main() {
     textField.controller!.selection = const TextSelection.collapsed(
       offset: initialText.length,
     );
+    textField.focusNode!.unfocus();
     editorController.toggleCheckbox();
     await tester.pump();
 
     expect(textField.controller!.text, 'Title\n☐ Task');
-    expect(textField.controller!.selection.baseOffset, 'Title\n☐ Task'.length);
+    expect(textField.focusNode!.hasFocus, isTrue);
+    expect(textField.controller!.selection.baseOffset, 'Title\n☐ '.length);
+
+    editorController.toggleCheckbox();
+    await tester.pump();
+
+    expect(textField.controller!.text, 'Title\n☒ Task');
+    expect(textField.controller!.selection.baseOffset, 'Title\n☒ '.length);
+
+    editorController.toggleCheckbox();
+    await tester.pump();
+
+    expect(textField.controller!.text, 'Title\n☐ Task');
+    expect(textField.controller!.selection.baseOffset, 'Title\n☐ '.length);
   });
 
   testWidgets('hyphen list continues after pressing enter', (tester) async {
@@ -143,6 +157,107 @@ void main() {
       textField.controller!.selection.baseOffset,
       'Title\n- item\n- '.length,
     );
+  });
+
+  testWidgets('tapping a checkbox marker toggles it in place', (tester) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          noteListProvider.overrideWith(
+            () => _FakeNoteList(
+              _note(
+                title: 'Title',
+                content: '☐ Task',
+                updatedAt: DateTime.utc(2026, 5, 10, 12),
+              ),
+            ),
+          ),
+        ],
+        child: const MaterialApp(
+          home: Scaffold(body: NoteEditorPane(noteId: 'note-1')),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final fieldFinder = find.byType(TextField);
+    final textField = tester.widget<TextField>(fieldFinder);
+    textField.controller!.selection = const TextSelection.collapsed(offset: 2);
+    await tester.tap(find.byKey(const ValueKey('note-checkbox-hotspot-6')));
+    await tester.pump();
+
+    expect(textField.controller!.text, 'Title\n☒ Task');
+    expect(textField.controller!.selection.baseOffset, 2);
+    expect(textField.focusNode!.hasFocus, isTrue);
+  });
+
+  testWidgets('checkbox lines expose a hover target', (tester) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          noteListProvider.overrideWith(
+            () => _FakeNoteList(
+              _note(
+                title: 'Title',
+                content: '☐ Task',
+                updatedAt: DateTime.utc(2026, 5, 10, 12),
+              ),
+            ),
+          ),
+        ],
+        child: const MaterialApp(
+          home: Scaffold(body: NoteEditorPane(noteId: 'note-1')),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final mouseRegions = tester.widgetList<MouseRegion>(find.byType(MouseRegion));
+    expect(
+      mouseRegions.any((region) => region.cursor == SystemMouseCursors.basic),
+      isTrue,
+    );
+  });
+
+  testWidgets('legacy checked checkboxes still toggle and normalize', (
+    tester,
+  ) async {
+    final editorController = NoteEditorController();
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          noteListProvider.overrideWith(
+            () => _FakeNoteList(
+              _note(
+                title: 'Title',
+                content: '☑ Task',
+                updatedAt: DateTime.utc(2026, 5, 10, 12),
+              ),
+            ),
+          ),
+        ],
+        child: MaterialApp(
+          home: Scaffold(
+            body: NoteEditorPane(
+              noteId: 'note-1',
+              controller: editorController,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final fieldFinder = find.byType(TextField);
+    final textField = tester.widget<TextField>(fieldFinder);
+    textField.controller!.selection = const TextSelection.collapsed(
+      offset: 'Title\n☑ '.length,
+    );
+    editorController.toggleCheckbox();
+    await tester.pump();
+
+    expect(textField.controller!.text, 'Title\n☐ Task');
   });
 }
 

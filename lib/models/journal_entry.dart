@@ -8,7 +8,7 @@ String _dateToJson(DateTime dt) => dt.toIso8601String();
 String _dateOnlyToJson(DateTime dt) => dt.toIso8601String().substring(0, 10);
 
 @freezed
-class JournalEntry with _$JournalEntry {
+abstract class JournalEntry with _$JournalEntry {
   const factory JournalEntry({
     required String id,
     @JsonKey(name: 'user_id') required String userId,
@@ -19,17 +19,9 @@ class JournalEntry with _$JournalEntry {
     )
     required DateTime entryDate,
     @Default('') String content,
-    @JsonKey(
-      name: 'created_at',
-      fromJson: _dateFromJson,
-      toJson: _dateToJson,
-    )
+    @JsonKey(name: 'created_at', fromJson: _dateFromJson, toJson: _dateToJson)
     required DateTime createdAt,
-    @JsonKey(
-      name: 'updated_at',
-      fromJson: _dateFromJson,
-      toJson: _dateToJson,
-    )
+    @JsonKey(name: 'updated_at', fromJson: _dateFromJson, toJson: _dateToJson)
     required DateTime updatedAt,
   }) = _JournalEntry;
 

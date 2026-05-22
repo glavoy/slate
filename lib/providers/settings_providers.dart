@@ -5,6 +5,8 @@ part 'settings_providers.g.dart';
 
 const _dateFormatKey = 'date_format';
 const _timeFormatKey = 'time_format';
+const _showTaskQuickListKey = 'show_task_quick_list';
+const _showCompletedTasksKey = 'show_completed_tasks';
 
 enum DateFormatStyle {
   dayMonthShort('Mon Jan 5'),
@@ -68,3 +70,42 @@ class TimeFormatNotifier extends _$TimeFormatNotifier {
     await prefs.setString(_timeFormatKey, value.name);
   }
 }
+
+@Riverpod(keepAlive: true)
+class ShowTaskQuickListNotifier extends _$ShowTaskQuickListNotifier {
+  @override
+  bool build() => true;
+
+  Future<void> init() async {
+    final prefs = await SharedPreferences.getInstance();
+    state = prefs.getBool(_showTaskQuickListKey) ?? true;
+  }
+
+  Future<void> set(bool value) async {
+    state = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_showTaskQuickListKey, value);
+  }
+}
+
+@Riverpod(keepAlive: true)
+class ShowCompletedTasksNotifier extends _$ShowCompletedTasksNotifier {
+  @override
+  bool build() => true;
+
+  Future<void> init() async {
+    final prefs = await SharedPreferences.getInstance();
+    state = prefs.getBool(_showCompletedTasksKey) ?? true;
+  }
+
+  Future<void> set(bool value) async {
+    state = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_showCompletedTasksKey, value);
+  }
+}
+
+const dateFormatNotifierProvider = dateFormatProvider;
+const timeFormatNotifierProvider = timeFormatProvider;
+const showTaskQuickListNotifierProvider = showTaskQuickListProvider;
+const showCompletedTasksNotifierProvider = showCompletedTasksProvider;

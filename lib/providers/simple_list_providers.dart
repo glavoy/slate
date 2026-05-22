@@ -27,3 +27,5 @@ class SimpleListNotifier extends _$SimpleListNotifier {
     await _repo().save(content);
   }
 }
+
+const simpleListNotifierProvider = simpleListProvider;

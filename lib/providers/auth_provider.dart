@@ -7,14 +7,14 @@ part 'auth_provider.g.dart';
 
 @riverpod
 // ignore: deprecated_member_use_from_same_package
-Stream<AuthState> authState(AuthStateRef ref) {
+Stream<AuthState> authState(Ref ref) {
   final client = ref.watch(supabaseClientProvider);
   return client.auth.onAuthStateChange;
 }
 
 @riverpod
 // ignore: deprecated_member_use_from_same_package
-User? currentUser(CurrentUserRef ref) {
+User? currentUser(Ref ref) {
   ref.watch(authStateProvider);
   return ref.watch(supabaseClientProvider).auth.currentUser;
 }
