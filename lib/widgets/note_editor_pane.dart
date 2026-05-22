@@ -79,6 +79,7 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
   void initState() {
     super.initState();
     _controller = _NoteController();
+    _focusNode.addListener(_handleFocusChanged);
     if (widget.controller != null) {
       _controllerGeneration = widget.controller!._register(
         toggleBullet: _toggleBullet,
@@ -92,6 +93,7 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
   void dispose() {
     _debounce?.cancel();
     _flushIfDirty();
+    _focusNode.removeListener(_handleFocusChanged);
     widget.controller?._unregister(_controllerGeneration);
     _controller.dispose();
     _focusNode.dispose();
@@ -142,6 +144,12 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
   bool get _isDirty =>
       _initialized &&
       (_title != _lastSavedTitle || _content != _lastSavedContent);
+
+  void _handleFocusChanged() {
+    if (!_focusNode.hasFocus && mounted) {
+      setState(() {});
+    }
+  }
 
   void _scheduleSave() {
     if (!_hasUnsavedEditorChanges) {
@@ -251,17 +259,17 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
       return;
     }
 
-    if (_isDirty) return;
-    if (_lastAppliedRemoteUpdate != null &&
-        !note.updatedAt.isAfter(_lastAppliedRemoteUpdate!)) {
-      return;
-    }
-
     final remoteText = _buildInitial(note);
     if (remoteText == _controller.text) {
       _lastSavedTitle = note.title;
       _lastSavedContent = note.content;
       _lastAppliedRemoteUpdate = note.updatedAt;
+      return;
+    }
+
+    if (_isDirty || _focusNode.hasFocus) return;
+    if (_lastAppliedRemoteUpdate != null &&
+        !note.updatedAt.isAfter(_lastAppliedRemoteUpdate!)) {
       return;
     }
 

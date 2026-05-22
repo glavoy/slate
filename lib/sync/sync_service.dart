@@ -220,22 +220,41 @@ class SyncService {
         try {
           if (sqlToBool(row['pending_delete'])) {
             await _pushDelete(client, table, row, syncTime);
-            local.execute(
-              'DELETE FROM ${table.name} WHERE ${table.keyColumn} = ?',
-              [key],
-            );
+            if (pushedSnapshotStillCurrent(
+              pushedClientModifiedAt: row['client_modified_at'],
+              currentRow: _selectExistingLocal(local, table, row),
+            )) {
+              local.execute(
+                '''
+                DELETE FROM ${table.name}
+                WHERE ${table.keyColumn} = ?
+                  AND user_id = ?
+                  AND sync_status = 'pending'
+                  AND client_modified_at = ?
+                ''',
+                [key, userId, row['client_modified_at']],
+              );
+            }
             continue;
           }
 
           await _pushUpsert(client, table, row);
-          local.execute(
-            '''
-            UPDATE ${table.name}
-            SET sync_status = 'synced', last_synced_at = ?
-            WHERE ${table.keyColumn} = ?
-            ''',
-            [syncTime, key],
-          );
+          if (pushedSnapshotStillCurrent(
+            pushedClientModifiedAt: row['client_modified_at'],
+            currentRow: _selectExistingLocal(local, table, row),
+          )) {
+            local.execute(
+              '''
+              UPDATE ${table.name}
+              SET sync_status = 'synced', last_synced_at = ?
+              WHERE ${table.keyColumn} = ?
+                AND user_id = ?
+                AND sync_status = 'pending'
+                AND client_modified_at = ?
+              ''',
+              [syncTime, key, userId, row['client_modified_at']],
+            );
+          }
         } catch (error, stackTrace) {
           // Leave the row pending; a later sync attempt can retry it.
           _logSyncError('push ${table.name}', error, stackTrace);
@@ -568,6 +587,16 @@ class SyncService {
     final remoteTime = _remoteModifiedAt(remoteRow);
     if (localTime == null || remoteTime == null) return true;
     return !localTime.isAfter(remoteTime);
+  }
+
+  @visibleForTesting
+  static bool pushedSnapshotStillCurrent({
+    required Object? pushedClientModifiedAt,
+    required Map<String, Object?>? currentRow,
+  }) {
+    return currentRow != null &&
+        currentRow['sync_status'] == 'pending' &&
+        currentRow['client_modified_at'] == pushedClientModifiedAt;
   }
 
   static DateTime? _parseTimestamp(Object? value) =>
