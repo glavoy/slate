@@ -19,6 +19,8 @@ class HomeScreen extends ConsumerStatefulWidget {
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   _TasksView _view = _TasksView.list;
   bool _simpleListExpanded = true;
+  bool _overdueExpanded = true;
+  bool _upcomingExpanded = true;
   bool _completedExpanded = false;
   DateTime _selectedCalendarDay = DateTime.now();
 
@@ -91,16 +93,26 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   title: 'OVERDUE',
                   color: Colors.red.shade400,
                   theme: theme,
+                  isExpanded: _overdueExpanded,
+                  onTap: () =>
+                      setState(() => _overdueExpanded = !_overdueExpanded),
                 ),
               ),
-              TaskSection(tasks: overdue, isOverdueSection: true),
+              if (_overdueExpanded)
+                TaskSection(tasks: overdue, isOverdueSection: true),
             ],
             if (upcoming.isNotEmpty) ...[
               SliverPersistentHeader(
                 pinned: true,
-                delegate: _SectionHeader(title: 'UPCOMING', theme: theme),
+                delegate: _SectionHeader(
+                  title: 'UPCOMING',
+                  theme: theme,
+                  isExpanded: _upcomingExpanded,
+                  onTap: () =>
+                      setState(() => _upcomingExpanded = !_upcomingExpanded),
+                ),
               ),
-              TaskSection(tasks: upcoming),
+              if (_upcomingExpanded) TaskSection(tasks: upcoming),
             ],
             if (overdue.isEmpty && upcoming.isEmpty)
               const SliverFillRemaining(
@@ -290,8 +302,16 @@ class _SectionHeader extends SliverPersistentHeaderDelegate {
   final String title;
   final Color? color;
   final ThemeData theme;
+  final bool isExpanded;
+  final VoidCallback onTap;
 
-  const _SectionHeader({required this.title, this.color, required this.theme});
+  const _SectionHeader({
+    required this.title,
+    this.color,
+    required this.theme,
+    required this.isExpanded,
+    required this.onTap,
+  });
 
   @override
   double get minExtent => 36;
@@ -307,15 +327,29 @@ class _SectionHeader extends SliverPersistentHeaderDelegate {
     final labelColor =
         color ?? theme.colorScheme.onSurface.withValues(alpha: 0.6);
 
-    return Container(
+    return Material(
       color: theme.scaffoldBackgroundColor,
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-      alignment: Alignment.centerLeft,
-      child: Text(
-        title,
-        style: theme.textTheme.labelLarge?.copyWith(
-          color: labelColor,
-          letterSpacing: 0.8,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+          child: Row(
+            children: [
+              Text(
+                title,
+                style: theme.textTheme.labelLarge?.copyWith(
+                  color: labelColor,
+                  letterSpacing: 0.8,
+                ),
+              ),
+              const SizedBox(width: 4),
+              Icon(
+                isExpanded ? Icons.expand_more : Icons.chevron_right,
+                size: 18,
+                color: labelColor,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -325,6 +359,8 @@ class _SectionHeader extends SliverPersistentHeaderDelegate {
   bool shouldRebuild(_SectionHeader old) =>
       old.title != title ||
       old.color != color ||
+      old.isExpanded != isExpanded ||
+      old.onTap != onTap ||
       old.theme.brightness != theme.brightness ||
       old.theme.colorScheme != theme.colorScheme;
 }
