@@ -56,6 +56,94 @@ void main() {
     expect(textField.controller!.text, localText);
     expect(textField.controller!.selection.baseOffset, localText.length);
   });
+
+  testWidgets('controller toggles checkbox marker on body lines', (
+    tester,
+  ) async {
+    final editorController = NoteEditorController();
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          noteListProvider.overrideWith(
+            () => _FakeNoteList(
+              _note(
+                title: 'Title',
+                content: 'Task',
+                updatedAt: DateTime.utc(2026, 5, 10, 12),
+              ),
+            ),
+          ),
+        ],
+        child: MaterialApp(
+          home: Scaffold(
+            body: NoteEditorPane(
+              noteId: 'note-1',
+              controller: editorController,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    const initialText = 'Title\nTask';
+    final fieldFinder = find.byType(TextField);
+    await tester.tap(fieldFinder);
+    await tester.enterText(fieldFinder, initialText);
+
+    final textField = tester.widget<TextField>(fieldFinder);
+    textField.controller!.selection = const TextSelection.collapsed(
+      offset: initialText.length,
+    );
+    editorController.toggleCheckbox();
+    await tester.pump();
+
+    expect(textField.controller!.text, 'Title\n☐ Task');
+    expect(textField.controller!.selection.baseOffset, 'Title\n☐ Task'.length);
+  });
+
+  testWidgets('hyphen list continues after pressing enter', (tester) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          noteListProvider.overrideWith(
+            () => _FakeNoteList(
+              _note(
+                title: 'Title',
+                content: '',
+                updatedAt: DateTime.utc(2026, 5, 10, 12),
+              ),
+            ),
+          ),
+        ],
+        child: const MaterialApp(
+          home: Scaffold(body: NoteEditorPane(noteId: 'note-1')),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    const textBeforeEnter = 'Title\n- item';
+    const textAfterEnter = '$textBeforeEnter\n';
+    final fieldFinder = find.byType(TextField);
+    await tester.tap(fieldFinder);
+    await tester.enterText(fieldFinder, textBeforeEnter);
+    tester.testTextInput.updateEditingValue(
+      const TextEditingValue(
+        text: textAfterEnter,
+        selection: TextSelection.collapsed(offset: textAfterEnter.length),
+      ),
+    );
+    await tester.pump();
+
+    final textField = tester.widget<TextField>(fieldFinder);
+    expect(textField.controller!.text, 'Title\n- item\n- ');
+    expect(
+      textField.controller!.selection.baseOffset,
+      'Title\n- item\n- '.length,
+    );
+  });
 }
 
 Note _note({

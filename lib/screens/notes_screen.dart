@@ -234,10 +234,10 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
           ),
           if (_selectedNoteId != null)
             IconButton(
-              icon: const Icon(Icons.format_list_bulleted),
+              icon: const Icon(Icons.check_box_outlined),
               iconSize: 20,
-              tooltip: 'Toggle bullet',
-              onPressed: _editorController.toggleBullet,
+              tooltip: 'Toggle checkbox',
+              onPressed: _editorController.toggleCheckbox,
             ),
         ],
       ),

@@ -26,10 +26,10 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
         title: const Text('Note'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.format_list_bulleted),
+            icon: const Icon(Icons.check_box_outlined),
             iconSize: 20,
-            tooltip: 'Toggle bullet',
-            onPressed: _editorController.toggleBullet,
+            tooltip: 'Toggle checkbox',
+            onPressed: _editorController.toggleCheckbox,
           ),
           IconButton(
             icon: const Icon(Icons.delete_outline),

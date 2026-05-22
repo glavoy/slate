@@ -6,6 +6,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/note.dart';
 import '../providers/note_providers.dart';
+import '../providers/supabase_provider.dart';
+import '../repositories/note_repository.dart';
 
 /// Allows a parent AppBar to invoke actions inside the pane without a GlobalKey.
 /// The pane registers its callbacks on init and unregisters on dispose.
@@ -13,16 +15,16 @@ import '../providers/note_providers.dart';
 /// unregistered by the dispose of an outgoing pane when the note selection changes.
 class NoteEditorController {
   int _generation = 0;
-  VoidCallback? _toggleBulletFn;
+  VoidCallback? _toggleCheckboxFn;
   VoidCallback? _focusTitleFn;
   Future<void> Function(BuildContext)? _deleteFn;
 
   int _register({
-    required VoidCallback toggleBullet,
+    required VoidCallback toggleCheckbox,
     required VoidCallback focusTitle,
     required Future<void> Function(BuildContext) delete,
   }) {
-    _toggleBulletFn = toggleBullet;
+    _toggleCheckboxFn = toggleCheckbox;
     _focusTitleFn = focusTitle;
     _deleteFn = delete;
     return ++_generation;
@@ -30,13 +32,13 @@ class NoteEditorController {
 
   void _unregister(int gen) {
     if (_generation == gen) {
-      _toggleBulletFn = null;
+      _toggleCheckboxFn = null;
       _focusTitleFn = null;
       _deleteFn = null;
     }
   }
 
-  void toggleBullet() => _toggleBulletFn?.call();
+  void toggleCheckbox() => _toggleCheckboxFn?.call();
   void focusTitle() => _focusTitleFn?.call();
   Future<void> confirmDelete(BuildContext context) =>
       _deleteFn?.call(context) ?? Future.value();
@@ -71,9 +73,11 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
   bool _hasUnsavedEditorChanges = false;
   int _controllerGeneration = 0;
   DateTime? _lastAppliedRemoteUpdate;
+  Future<void> Function(String, {String? title, String? content})?
+  _saveWithoutProviderRefresh;
 
   static const _debounceDuration = Duration(milliseconds: 1000);
-  static const _bullet = '• ';
+  static const _checkbox = '☐ ';
 
   @override
   void initState() {
@@ -82,7 +86,7 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
     _focusNode.addListener(_handleFocusChanged);
     if (widget.controller != null) {
       _controllerGeneration = widget.controller!._register(
-        toggleBullet: _toggleBullet,
+        toggleCheckbox: _toggleCheckbox,
         focusTitle: _focusTitle,
         delete: _confirmDelete,
       );
@@ -92,7 +96,7 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
   @override
   void dispose() {
     _debounce?.cancel();
-    _flushIfDirty();
+    _flushIfDirty(updateUi: false, refreshProvider: false);
     _focusNode.removeListener(_handleFocusChanged);
     widget.controller?._unregister(_controllerGeneration);
     _controller.dispose();
@@ -119,26 +123,34 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
     return '${note.title}\n${note.content}';
   }
 
-  void _flushIfDirty() {
+  void _flushIfDirty({bool updateUi = true, bool refreshProvider = true}) {
     if (!_initialized) return;
     final t = _title;
     final c = _content;
     if (t == _lastSavedTitle && c == _lastSavedContent) {
       if (_hasUnsavedEditorChanges) {
-        setState(() => _hasUnsavedEditorChanges = false);
+        if (updateUi && mounted) {
+          setState(() => _hasUnsavedEditorChanges = false);
+        } else {
+          _hasUnsavedEditorChanges = false;
+        }
       }
       return;
     }
     _lastSavedTitle = t;
     _lastSavedContent = c;
-    if (mounted) {
+    if (updateUi && mounted) {
       setState(() => _hasUnsavedEditorChanges = false);
     } else {
       _hasUnsavedEditorChanges = false;
     }
-    ref
-        .read(noteListProvider.notifier)
-        .edit(widget.noteId, title: t, content: c);
+    if (refreshProvider) {
+      ref
+          .read(noteListProvider.notifier)
+          .edit(widget.noteId, title: t, content: c);
+    } else {
+      _saveWithoutProviderRefresh?.call(widget.noteId, title: t, content: c);
+    }
   }
 
   bool get _isDirty =>
@@ -175,7 +187,7 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
     });
   }
 
-  void _toggleBullet() {
+  void _toggleCheckbox() {
     final text = _controller.text;
     final sel = _controller.selection;
     if (!sel.isValid) return;
@@ -193,19 +205,19 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
     final String newText;
     final int newCursor;
 
-    if (line.startsWith(_bullet)) {
+    if (line.startsWith(_checkbox)) {
       newText =
           text.substring(0, lineStart) +
-          line.substring(_bullet.length) +
+          line.substring(_checkbox.length) +
           text.substring(lineEnd);
-      newCursor = (cursor - _bullet.length).clamp(
+      newCursor = (cursor - _checkbox.length).clamp(
         lineStart,
-        lineStart + line.length - _bullet.length,
+        lineStart + line.length - _checkbox.length,
       );
     } else {
       newText =
-          text.substring(0, lineStart) + _bullet + text.substring(lineStart);
-      newCursor = cursor + _bullet.length;
+          text.substring(0, lineStart) + _checkbox + text.substring(lineStart);
+      newCursor = cursor + _checkbox.length;
     }
 
     _controller.value = TextEditingValue(
@@ -294,6 +306,16 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (e, _) => Center(child: Text('Error: $e')),
       data: (notes) {
+        try {
+          final client = ref.read(supabaseClientProvider);
+          _saveWithoutProviderRefresh =
+              (id, {String? title, String? content}) => NoteRepository(
+                client,
+              ).update(id, title: title, content: content);
+        } catch (_) {
+          _saveWithoutProviderRefresh = null;
+        }
+
         final note = _findNote(notes);
         if (note == null) return const Center(child: Text('Note not found'));
 
@@ -311,7 +333,7 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
                 keyboardType: TextInputType.multiline,
                 textAlignVertical: TextAlignVertical.top,
                 style: theme.textTheme.bodyLarge,
-                inputFormatters: [_NoteBulletFormatter()],
+                inputFormatters: [_NoteListFormatter()],
                 decoration: InputDecoration(
                   hintText: 'Title',
                   hintStyle: TextStyle(
@@ -427,8 +449,9 @@ class _NoteController extends TextEditingController {
   }
 }
 
-class _NoteBulletFormatter extends TextInputFormatter {
-  static const _bullet = '• ';
+class _NoteListFormatter extends TextInputFormatter {
+  static const _checkbox = '☐ ';
+  static const _hyphen = '- ';
 
   @override
   TextEditingValue formatEditUpdate(
@@ -445,10 +468,10 @@ class _NoteBulletFormatter extends TextInputFormatter {
     final prevLineStart = before.lastIndexOf('\n') + 1;
     final prevLine = before.substring(prevLineStart);
 
-    if (!prevLine.startsWith(_bullet)) return newValue;
+    final marker = _continuationMarker(prevLine);
+    if (marker == null) return newValue;
 
-    if (prevLine == _bullet) {
-      // Empty bullet line — remove bullet on Enter instead of continuing
+    if (_isEmptyListLine(prevLine, marker)) {
       final newText =
           '${newValue.text.substring(0, prevLineStart)}\n${newValue.text.substring(cursor)}';
       return TextEditingValue(
@@ -457,13 +480,26 @@ class _NoteBulletFormatter extends TextInputFormatter {
       );
     }
 
-    // Continue bullet on next line
     final after = newValue.text.substring(cursor);
-    if (after.startsWith(_bullet)) return newValue;
-    final updated = newValue.text.substring(0, cursor) + _bullet + after;
+    if (after.startsWith(marker)) return newValue;
+    final updated = newValue.text.substring(0, cursor) + marker + after;
     return TextEditingValue(
       text: updated,
-      selection: TextSelection.collapsed(offset: cursor + _bullet.length),
+      selection: TextSelection.collapsed(offset: cursor + marker.length),
     );
+  }
+
+  String? _continuationMarker(String line) {
+    if (line.startsWith(_checkbox)) return _checkbox;
+    if (line.startsWith(_hyphen)) return _hyphen;
+    if (line.startsWith('-') && line.length > 1) return _hyphen;
+    return null;
+  }
+
+  bool _isEmptyListLine(String line, String marker) {
+    if (marker == _hyphen) {
+      return line == '-' || line == _hyphen;
+    }
+    return line == marker;
   }
 }
