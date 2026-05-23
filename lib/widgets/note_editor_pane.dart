@@ -13,6 +13,8 @@ const String _uncheckedMarker = '☐ ';
 const String _checkedMarker = '☑ ';
 const String _legacyCheckedMarker = '☒ ';
 const String _bulletMarker = '- ';
+const String _h1Marker = '# ';
+const String _h2Marker = '## ';
 
 String? _checkboxMarkerPrefix(String line) {
   if (line.startsWith(_uncheckedMarker)) return _uncheckedMarker;
@@ -27,6 +29,37 @@ bool _isCheckedMarker(String marker) =>
 String _normalizeCheckedMarkers(String text) =>
     text.replaceAll(_legacyCheckedMarker, _checkedMarker);
 
+String stripNoteMarkdown(String text) {
+  return text
+      .split('\n')
+      .map((line) {
+        var stripped = line;
+        final checkboxMarker = _checkboxMarkerPrefix(stripped);
+        if (checkboxMarker != null) {
+          stripped = stripped.substring(checkboxMarker.length);
+        } else if (stripped.startsWith(_bulletMarker)) {
+          stripped = stripped.substring(_bulletMarker.length);
+        } else if (stripped.startsWith(_h2Marker)) {
+          stripped = stripped.substring(_h2Marker.length);
+        } else if (stripped.startsWith(_h1Marker)) {
+          stripped = stripped.substring(_h1Marker.length);
+        }
+        return stripped
+            .replaceAllMapped(
+              RegExp(r'\*\*([^*]+)\*\*'),
+              (match) => match.group(1)!,
+            )
+            .replaceAllMapped(
+              RegExp(r'\+\+([^+]+)\+\+'),
+              (match) => match.group(1)!,
+            )
+            .replaceAllMapped(
+              RegExp(r'\*([^*]+)\*'),
+              (match) => match.group(1)!,
+            );
+      })
+      .join('\n');
+}
 
 /// Allows a parent AppBar to invoke actions inside the pane without a GlobalKey.
 /// The pane registers its callbacks on init and unregisters on dispose.
@@ -37,15 +70,30 @@ class NoteEditorController {
   VoidCallback? _toggleCheckboxFn;
   VoidCallback? _focusTitleFn;
   Future<void> Function(BuildContext)? _deleteFn;
+  VoidCallback? _toggleBoldFn;
+  VoidCallback? _toggleItalicFn;
+  VoidCallback? _toggleUnderlineFn;
+  VoidCallback? _toggleH1Fn;
+  VoidCallback? _toggleH2Fn;
 
   int _register({
     required VoidCallback toggleCheckbox,
     required VoidCallback toggleBullet,
+    required VoidCallback toggleBold,
+    required VoidCallback toggleItalic,
+    required VoidCallback toggleUnderline,
+    required VoidCallback toggleH1,
+    required VoidCallback toggleH2,
     required VoidCallback focusTitle,
     required Future<void> Function(BuildContext) delete,
   }) {
     _toggleCheckboxFn = toggleCheckbox;
     _toggleBulletFn = toggleBullet;
+    _toggleBoldFn = toggleBold;
+    _toggleItalicFn = toggleItalic;
+    _toggleUnderlineFn = toggleUnderline;
+    _toggleH1Fn = toggleH1;
+    _toggleH2Fn = toggleH2;
     _focusTitleFn = focusTitle;
     _deleteFn = delete;
     return ++_generation;
@@ -55,6 +103,11 @@ class NoteEditorController {
     if (_generation == gen) {
       _toggleCheckboxFn = null;
       _toggleBulletFn = null;
+      _toggleBoldFn = null;
+      _toggleItalicFn = null;
+      _toggleUnderlineFn = null;
+      _toggleH1Fn = null;
+      _toggleH2Fn = null;
       _focusTitleFn = null;
       _deleteFn = null;
     }
@@ -64,6 +117,11 @@ class NoteEditorController {
 
   void toggleCheckbox() => _toggleCheckboxFn?.call();
   void toggleBullet() => _toggleBulletFn?.call();
+  void toggleBold() => _toggleBoldFn?.call();
+  void toggleItalic() => _toggleItalicFn?.call();
+  void toggleUnderline() => _toggleUnderlineFn?.call();
+  void toggleH1() => _toggleH1Fn?.call();
+  void toggleH2() => _toggleH2Fn?.call();
   void focusTitle() => _focusTitleFn?.call();
   Future<void> confirmDelete(BuildContext context) =>
       _deleteFn?.call(context) ?? Future.value();
@@ -109,16 +167,19 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
   void initState() {
     super.initState();
     _controller = _NoteController(
-      onToggleMarker: (offset, preserve) => _toggleMarkerAt(
-        offset,
-        preserveSelection: preserve,
-      ),
+      onToggleMarker: (offset, preserve) =>
+          _toggleMarkerAt(offset, preserveSelection: preserve),
     );
     _focusNode.addListener(_handleFocusChanged);
     if (widget.controller != null) {
       _controllerGeneration = widget.controller!._register(
         toggleCheckbox: _toggleCheckboxAtCursor,
         toggleBullet: _toggleBulletAtCursor,
+        toggleBold: _toggleBold,
+        toggleItalic: _toggleItalic,
+        toggleUnderline: _toggleUnderline,
+        toggleH1: _toggleH1,
+        toggleH2: _toggleH2,
         focusTitle: _focusTitle,
         delete: _confirmDelete,
       );
@@ -251,8 +312,9 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
     final int cursorAfter;
     if (cbMarker != null) {
       // Has a checkbox marker — toggle checked ↔ unchecked.
-      final nextMarker =
-          cbMarker == _uncheckedMarker ? _checkedMarker : _uncheckedMarker;
+      final nextMarker = cbMarker == _uncheckedMarker
+          ? _checkedMarker
+          : _uncheckedMarker;
       replacement = nextMarker + line.substring(cbMarker.length);
       cursorAfter = _cursorAfterMarkerSwap(
         cursor: workingOffset,
@@ -302,7 +364,10 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
         _controller._selectionLock = null;
       });
     }
-    _controller.value = TextEditingValue(text: newText, selection: newSelection);
+    _controller.value = TextEditingValue(
+      text: newText,
+      selection: newSelection,
+    );
     _scheduleSave();
   }
 
@@ -325,6 +390,122 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
         : _controller.text.length;
     _toggleMarkerAt(offset);
   }
+
+  void _replaceSelection(String text, TextSelection selection) {
+    _focusNode.requestFocus();
+    _controller.value = TextEditingValue(text: text, selection: selection);
+    _scheduleSave();
+  }
+
+  void _toggleInlineMarker(String marker) {
+    final text = _controller.text;
+    final rawSelection = _controller.selection;
+    final selection = rawSelection.isValid
+        ? rawSelection
+        : TextSelection.collapsed(offset: text.length);
+    final start = selection.start;
+    final end = selection.end;
+
+    if (selection.isCollapsed) {
+      final updated = text.replaceRange(start, end, marker + marker);
+      _replaceSelection(
+        updated,
+        TextSelection.collapsed(offset: start + marker.length),
+      );
+      return;
+    }
+
+    final hasWrappingMarkers =
+        start >= marker.length &&
+        end + marker.length <= text.length &&
+        text.substring(start - marker.length, start) == marker &&
+        text.substring(end, end + marker.length) == marker;
+
+    if (hasWrappingMarkers) {
+      final updated =
+          text.substring(0, start - marker.length) +
+          text.substring(start, end) +
+          text.substring(end + marker.length);
+      _replaceSelection(
+        updated,
+        TextSelection(
+          baseOffset: start - marker.length,
+          extentOffset: end - marker.length,
+        ),
+      );
+      return;
+    }
+
+    final updated =
+        text.substring(0, start) +
+        marker +
+        text.substring(start, end) +
+        marker +
+        text.substring(end);
+    _replaceSelection(
+      updated,
+      TextSelection(
+        baseOffset: start + marker.length,
+        extentOffset: end + marker.length,
+      ),
+    );
+  }
+
+  void _toggleBold() => _toggleInlineMarker('**');
+
+  void _toggleItalic() => _toggleInlineMarker('*');
+
+  void _toggleUnderline() => _toggleInlineMarker('++');
+
+  void _toggleHeading(String marker) {
+    final text = _controller.text;
+    final firstNewline = text.indexOf('\n');
+    if (firstNewline == -1) return;
+
+    final sel = _controller.selection;
+    final rawOffset = sel.isValid
+        ? (sel.isCollapsed ? sel.baseOffset : sel.start)
+        : text.length;
+    if (rawOffset <= firstNewline) return;
+
+    final workingOffset = rawOffset.clamp(firstNewline + 1, text.length);
+    final lineStart = text.lastIndexOf('\n', workingOffset - 1) + 1;
+    final lineEndRaw = text.indexOf('\n', workingOffset);
+    final lineEnd = lineEndRaw < 0 ? text.length : lineEndRaw;
+    final line = text.substring(lineStart, lineEnd);
+
+    if (line.startsWith(_bulletMarker) || _checkboxMarkerPrefix(line) != null) {
+      return;
+    }
+
+    final String oldMarker;
+    if (line.startsWith(_h2Marker)) {
+      oldMarker = _h2Marker;
+    } else if (line.startsWith(_h1Marker)) {
+      oldMarker = _h1Marker;
+    } else {
+      oldMarker = '';
+    }
+
+    final newMarker = oldMarker == marker ? '' : marker;
+    final newLine = newMarker + line.substring(oldMarker.length);
+    final updated =
+        text.substring(0, lineStart) + newLine + text.substring(lineEnd);
+    final delta = newMarker.length - oldMarker.length;
+    final baseOffset = sel.isValid ? sel.baseOffset : workingOffset;
+    final extentOffset = sel.isValid ? sel.extentOffset : workingOffset;
+    _replaceSelection(
+      updated,
+      TextSelection(
+        baseOffset: (baseOffset + delta).clamp(0, updated.length),
+        extentOffset: (extentOffset + delta).clamp(0, updated.length),
+      ),
+    );
+  }
+
+  void _toggleH1() => _toggleHeading(_h1Marker);
+
+  void _toggleH2() => _toggleHeading(_h2Marker);
 
   /// Toggle a bullet (`- `) on the current body line.
   /// Bullet and checkbox are mutually exclusive: pressing bullet on a checkbox
@@ -381,7 +562,9 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
     }
 
     final newText =
-        prepared.substring(0, lineStart) + newLine + prepared.substring(lineEnd);
+        prepared.substring(0, lineStart) +
+        newLine +
+        prepared.substring(lineEnd);
     _focusNode.requestFocus();
     _controller.value = TextEditingValue(
       text: newText,
@@ -464,7 +647,8 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
-    final bodyStyle = theme.textTheme.bodyLarge ?? const TextStyle(fontSize: 16);
+    final bodyStyle =
+        theme.textTheme.bodyLarge ?? const TextStyle(fontSize: 16);
     final bodyFontSize = bodyStyle.fontSize ?? 16.0;
     final asyncNotes = ref.watch(noteListProvider);
 
@@ -514,6 +698,15 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
                 onChanged: (_) => _scheduleSave(),
               ),
             ),
+            _NoteFormatToolbar(
+              onBold: _toggleBold,
+              onItalic: _toggleItalic,
+              onUnderline: _toggleUnderline,
+              onH1: _toggleH1,
+              onH2: _toggleH2,
+              onBullet: _toggleBulletAtCursor,
+              onCheckbox: _toggleCheckboxAtCursor,
+            ),
             _NoteSyncFooter(
               note: note,
               hasUnsavedEditorChanges: _hasUnsavedEditorChanges,
@@ -521,6 +714,124 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
           ],
         );
       },
+    );
+  }
+}
+
+class _NoteFormatToolbar extends StatelessWidget {
+  const _NoteFormatToolbar({
+    required this.onBold,
+    required this.onItalic,
+    required this.onUnderline,
+    required this.onH1,
+    required this.onH2,
+    required this.onBullet,
+    required this.onCheckbox,
+  });
+
+  final VoidCallback onBold;
+  final VoidCallback onItalic;
+  final VoidCallback onUnderline;
+  final VoidCallback onH1;
+  final VoidCallback onH2;
+  final VoidCallback onBullet;
+  final VoidCallback onCheckbox;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final border = BorderSide(
+      color: theme.colorScheme.outlineVariant.withValues(alpha: 0.6),
+    );
+
+    return SafeArea(
+      top: false,
+      child: Container(
+        decoration: BoxDecoration(
+          color: theme.scaffoldBackgroundColor,
+          border: Border(top: border),
+        ),
+        padding: const EdgeInsets.fromLTRB(8, 4, 8, 6),
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              _ToolbarTextButton(
+                label: 'B',
+                tooltip: 'Bold',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+                onPressed: onBold,
+              ),
+              _ToolbarTextButton(
+                label: 'I',
+                tooltip: 'Italic',
+                style: const TextStyle(fontStyle: FontStyle.italic),
+                onPressed: onItalic,
+              ),
+              _ToolbarTextButton(
+                label: 'U',
+                tooltip: 'Underline',
+                style: const TextStyle(decoration: TextDecoration.underline),
+                onPressed: onUnderline,
+              ),
+              const SizedBox(width: 4),
+              _ToolbarTextButton(
+                label: 'H1',
+                tooltip: 'Heading 1',
+                onPressed: onH1,
+              ),
+              _ToolbarTextButton(
+                label: 'H2',
+                tooltip: 'Heading 2',
+                onPressed: onH2,
+              ),
+              const SizedBox(width: 4),
+              IconButton(
+                icon: const Icon(Icons.format_list_bulleted),
+                iconSize: 20,
+                tooltip: 'Toggle bullet',
+                onPressed: onBullet,
+              ),
+              IconButton(
+                icon: const Icon(Icons.check_box_outlined),
+                iconSize: 20,
+                tooltip: 'Toggle checkbox',
+                onPressed: onCheckbox,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ToolbarTextButton extends StatelessWidget {
+  const _ToolbarTextButton({
+    required this.label,
+    required this.tooltip,
+    required this.onPressed,
+    this.style,
+  });
+
+  final String label;
+  final String tooltip;
+  final VoidCallback onPressed;
+  final TextStyle? style;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: TextButton(
+        style: TextButton.styleFrom(
+          minimumSize: const Size(40, 36),
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          visualDensity: VisualDensity.compact,
+        ),
+        onPressed: onPressed,
+        child: Text(label, style: style),
+      ),
     );
   }
 }
@@ -625,6 +936,14 @@ class _NoteController extends TextEditingController {
       fontWeight: FontWeight.bold,
       fontSize: (base.fontSize ?? 16.0) * 1.3,
     );
+    final h1Style = base.copyWith(
+      fontWeight: FontWeight.w700,
+      fontSize: (base.fontSize ?? 16.0) * 1.25,
+    );
+    final h2Style = base.copyWith(
+      fontWeight: FontWeight.w700,
+      fontSize: (base.fontSize ?? 16.0) * 1.12,
+    );
 
     final text = this.text;
     final newlineIndex = text.indexOf('\n');
@@ -697,7 +1016,9 @@ class _NoteController extends TextEditingController {
         );
 
         if (line.length > cbMarker.length) {
-          children.add(TextSpan(text: line.substring(cbMarker.length)));
+          children.addAll(
+            _markdownInlineSpans(line.substring(cbMarker.length), base),
+          );
         }
       } else if (isBullet) {
         // WidgetSpan for '-' — renders as a small filled circle, same width as
@@ -729,10 +1050,24 @@ class _NoteController extends TextEditingController {
         );
 
         if (line.length > _bulletMarker.length) {
-          children.add(TextSpan(text: line.substring(_bulletMarker.length)));
+          children.addAll(
+            _markdownInlineSpans(line.substring(_bulletMarker.length), base),
+          );
         }
       } else if (line.isNotEmpty) {
-        children.add(TextSpan(text: line));
+        final TextStyle lineStyle;
+        final String content;
+        if (line.startsWith(_h2Marker)) {
+          lineStyle = h2Style;
+          content = line.substring(_h2Marker.length);
+        } else if (line.startsWith(_h1Marker)) {
+          lineStyle = h1Style;
+          content = line.substring(_h1Marker.length);
+        } else {
+          lineStyle = base;
+          content = line;
+        }
+        children.addAll(_markdownInlineSpans(content, lineStyle));
       }
 
       absoluteOffset += line.length + 1;
@@ -740,6 +1075,71 @@ class _NoteController extends TextEditingController {
 
     return TextSpan(style: base, children: children);
   }
+}
+
+List<InlineSpan> _markdownInlineSpans(String text, TextStyle style) {
+  final spans = <InlineSpan>[];
+  final buffer = StringBuffer();
+
+  void flush() {
+    if (buffer.isEmpty) return;
+    spans.add(TextSpan(text: buffer.toString(), style: style));
+    buffer.clear();
+  }
+
+  var i = 0;
+  while (i < text.length) {
+    if (text.startsWith('**', i)) {
+      final end = text.indexOf('**', i + 2);
+      if (end > i + 2) {
+        flush();
+        spans.add(
+          TextSpan(
+            text: text.substring(i + 2, end),
+            style: style.copyWith(fontWeight: FontWeight.bold),
+          ),
+        );
+        i = end + 2;
+        continue;
+      }
+    }
+
+    if (text.startsWith('++', i)) {
+      final end = text.indexOf('++', i + 2);
+      if (end > i + 2) {
+        flush();
+        spans.add(
+          TextSpan(
+            text: text.substring(i + 2, end),
+            style: style.copyWith(decoration: TextDecoration.underline),
+          ),
+        );
+        i = end + 2;
+        continue;
+      }
+    }
+
+    if (text.startsWith('*', i) && !text.startsWith('**', i)) {
+      final end = text.indexOf('*', i + 1);
+      if (end > i + 1) {
+        flush();
+        spans.add(
+          TextSpan(
+            text: text.substring(i + 1, end),
+            style: style.copyWith(fontStyle: FontStyle.italic),
+          ),
+        );
+        i = end + 1;
+        continue;
+      }
+    }
+
+    buffer.write(text[i]);
+    i++;
+  }
+
+  flush();
+  return spans;
 }
 
 /// When the user presses Enter at the end of a list line, continue the list

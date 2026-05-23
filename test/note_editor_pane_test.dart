@@ -212,7 +212,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final mouseRegions = tester.widgetList<MouseRegion>(find.byType(MouseRegion));
+    final mouseRegions = tester.widgetList<MouseRegion>(
+      find.byType(MouseRegion),
+    );
     expect(
       mouseRegions.any((region) => region.cursor == SystemMouseCursors.basic),
       isTrue,
@@ -258,6 +260,157 @@ void main() {
     await tester.pump();
 
     expect(textField.controller!.text, 'Title\n☐ Task');
+  });
+
+  testWidgets('formatting controller wraps selected text in markdown markers', (
+    tester,
+  ) async {
+    final editorController = NoteEditorController();
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          noteListProvider.overrideWith(
+            () => _FakeNoteList(
+              _note(
+                title: 'Title',
+                content: 'Important words',
+                updatedAt: DateTime.utc(2026, 5, 10, 12),
+              ),
+            ),
+          ),
+        ],
+        child: MaterialApp(
+          home: Scaffold(
+            body: NoteEditorPane(
+              noteId: 'note-1',
+              controller: editorController,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final fieldFinder = find.byType(TextField);
+    final textField = tester.widget<TextField>(fieldFinder);
+    const selectedStart = 'Title\n'.length;
+    const selectedEnd = 'Title\nImportant'.length;
+    textField.controller!.selection = const TextSelection(
+      baseOffset: selectedStart,
+      extentOffset: selectedEnd,
+    );
+
+    editorController.toggleBold();
+    await tester.pump();
+
+    expect(textField.controller!.text, 'Title\n**Important** words');
+
+    textField.controller!.selection = const TextSelection(
+      baseOffset: selectedStart + 2,
+      extentOffset: selectedEnd + 2,
+    );
+    editorController.toggleBold();
+    await tester.pump();
+
+    expect(textField.controller!.text, 'Title\nImportant words');
+  });
+
+  testWidgets('formatting controller inserts paired markers at cursor', (
+    tester,
+  ) async {
+    final editorController = NoteEditorController();
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          noteListProvider.overrideWith(
+            () => _FakeNoteList(
+              _note(
+                title: 'Title',
+                content: 'Body',
+                updatedAt: DateTime.utc(2026, 5, 10, 12),
+              ),
+            ),
+          ),
+        ],
+        child: MaterialApp(
+          home: Scaffold(
+            body: NoteEditorPane(
+              noteId: 'note-1',
+              controller: editorController,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final textField = tester.widget<TextField>(find.byType(TextField));
+    textField.controller!.selection = const TextSelection.collapsed(
+      offset: 'Title\nBody'.length,
+    );
+
+    editorController.toggleUnderline();
+    await tester.pump();
+
+    expect(textField.controller!.text, 'Title\nBody++++');
+    expect(textField.controller!.selection.baseOffset, 'Title\nBody++'.length);
+  });
+
+  testWidgets('heading controls apply to plain body lines only', (
+    tester,
+  ) async {
+    final editorController = NoteEditorController();
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          noteListProvider.overrideWith(
+            () => _FakeNoteList(
+              _note(
+                title: 'Title',
+                content: 'Section\n- Item',
+                updatedAt: DateTime.utc(2026, 5, 10, 12),
+              ),
+            ),
+          ),
+        ],
+        child: MaterialApp(
+          home: Scaffold(
+            body: NoteEditorPane(
+              noteId: 'note-1',
+              controller: editorController,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final textField = tester.widget<TextField>(find.byType(TextField));
+    textField.controller!.selection = const TextSelection.collapsed(
+      offset: 'Title\nSection'.length,
+    );
+    editorController.toggleH1();
+    await tester.pump();
+
+    expect(textField.controller!.text, 'Title\n# Section\n- Item');
+
+    textField.controller!.selection = const TextSelection.collapsed(
+      offset: 'Title\n# Section\n- Item'.length,
+    );
+    editorController.toggleH2();
+    await tester.pump();
+
+    expect(textField.controller!.text, 'Title\n# Section\n- Item');
+  });
+
+  test('stripNoteMarkdown removes inline, heading, and list markers', () {
+    expect(
+      stripNoteMarkdown('# **Big**\n- *item*\n☑ ++done++'),
+      'Big\nitem\ndone',
+    );
   });
 }
 

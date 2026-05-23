@@ -274,24 +274,6 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
               context,
             ).push(MaterialPageRoute(builder: (_) => const _TrashScreen())),
           ),
-          if (_selectedNoteId != null) ...[
-            ExcludeFocus(
-              child: IconButton(
-                icon: const Icon(Icons.format_list_bulleted),
-                iconSize: 20,
-                tooltip: 'Toggle bullet',
-                onPressed: _editorController.toggleBullet,
-              ),
-            ),
-            ExcludeFocus(
-              child: IconButton(
-                icon: const Icon(Icons.check_box_outlined),
-                iconSize: 20,
-                tooltip: 'Toggle checkbox',
-                onPressed: _editorController.toggleCheckbox,
-              ),
-            ),
-          ],
         ],
       ),
       floatingActionButton: _isWide
@@ -417,7 +399,7 @@ class _NoteListTile extends StatelessWidget {
   }
 
   String _preview(Note note) {
-    final raw = note.content.trim();
+    final raw = stripNoteMarkdown(note.content).trim();
     if (raw.isEmpty) return 'No content';
     final line = raw.split('\n').first;
     return line.length > 80 ? '${line.substring(0, 80)}…' : line;
