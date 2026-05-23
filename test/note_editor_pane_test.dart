@@ -214,7 +214,7 @@ void main() {
 
     final mouseRegions = tester.widgetList<MouseRegion>(find.byType(MouseRegion));
     expect(
-      mouseRegions.any((region) => region.cursor == SystemMouseCursors.click),
+      mouseRegions.any((region) => region.cursor == SystemMouseCursors.basic),
       isTrue,
     );
   });

@@ -15,7 +15,7 @@ class SettingsScreen extends ConsumerWidget {
     final themeMode = ref.watch(themeNotifierProvider);
     final dateStyle = ref.watch(dateFormatNotifierProvider);
     final timeStyle = ref.watch(timeFormatNotifierProvider);
-    final showTaskQuickList = ref.watch(showTaskQuickListNotifierProvider);
+    final showNotesQuickList = ref.watch(showNotesQuickListNotifierProvider);
     final showCompletedTasks = ref.watch(showCompletedTasksNotifierProvider);
     final user = ref.watch(currentUserProvider);
     final theme = Theme.of(context);
@@ -87,15 +87,20 @@ class SettingsScreen extends ConsumerWidget {
           ),
 
           const Divider(height: 24),
-          _SectionHeader(theme: theme, label: 'TASKS'),
+          _SectionHeader(theme: theme, label: 'NOTES'),
 
           SwitchListTile(
             secondary: const Icon(Icons.playlist_add_check_outlined),
             title: const Text('Show quick list'),
-            value: showTaskQuickList,
-            onChanged: (value) =>
-                ref.read(showTaskQuickListNotifierProvider.notifier).set(value),
+            value: showNotesQuickList,
+            onChanged: (value) => ref
+                .read(showNotesQuickListNotifierProvider.notifier)
+                .set(value),
           ),
+
+          const Divider(height: 24),
+          _SectionHeader(theme: theme, label: 'TASKS'),
+
           SwitchListTile(
             secondary: const Icon(Icons.check_circle_outline),
             title: const Text('Show completed tasks'),

@@ -5,7 +5,6 @@ import '../providers/task_providers.dart';
 import '../widgets/add_edit_task_sheet.dart';
 import '../widgets/calendar_view.dart';
 import '../widgets/completed_task_card.dart';
-import '../widgets/simple_list_section.dart';
 import '../widgets/task_section.dart';
 
 enum _TasksView { list, calendar }
@@ -19,7 +18,6 @@ class HomeScreen extends ConsumerStatefulWidget {
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   _TasksView _view = _TasksView.list;
-  bool _simpleListExpanded = true;
   bool _overdueExpanded = true;
   bool _upcomingExpanded = true;
   bool _completedExpanded = false;
@@ -33,44 +31,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       builder: (_) => AddEditTaskSheet(
         initialDate: _view == _TasksView.calendar ? _selectedCalendarDay : null,
       ),
-    );
-  }
-
-  Widget _buildSimpleListSection(ThemeData theme, ColorScheme colorScheme) {
-    final header = InkWell(
-      onTap: () => setState(() => _simpleListExpanded = !_simpleListExpanded),
-      child: Container(
-        color: theme.scaffoldBackgroundColor,
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-        child: Row(
-          children: [
-            Text(
-              'QUICK LIST',
-              style: theme.textTheme.labelLarge?.copyWith(
-                color: colorScheme.onSurface.withValues(alpha: 0.6),
-                letterSpacing: 0.8,
-              ),
-            ),
-            const SizedBox(width: 4),
-            Icon(
-              _simpleListExpanded ? Icons.expand_more : Icons.chevron_right,
-              size: 18,
-              color: colorScheme.onSurface.withValues(alpha: 0.6),
-            ),
-          ],
-        ),
-      ),
-    );
-
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        header,
-        if (_simpleListExpanded) ...[
-          const SimpleListSection(),
-          const SizedBox(height: 8),
-        ],
-      ],
     );
   }
 
@@ -239,22 +199,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final showTaskQuickList = ref.watch(showTaskQuickListNotifierProvider);
 
     final body = _view == _TasksView.list
-        ? Column(
-            children: [
-              if (showTaskQuickList)
-                _buildSimpleListSection(theme, colorScheme),
-              Expanded(child: _buildListView(theme, colorScheme)),
-            ],
-          )
+        ? _buildListView(theme, colorScheme)
         : SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                if (showTaskQuickList)
-                  _buildSimpleListSection(theme, colorScheme),
                 CalendarView(
                   initialSelectedDay: _selectedCalendarDay,
                   onDaySelected: (day) =>

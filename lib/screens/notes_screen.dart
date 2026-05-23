@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/note.dart';
+import '../providers/settings_providers.dart';
 import '../providers/note_providers.dart';
 import '../widgets/note_editor_pane.dart';
+import '../widgets/simple_list_section.dart';
 import 'note_editor_screen.dart';
 
 class NotesScreen extends ConsumerStatefulWidget {
@@ -21,6 +23,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
   final _pendingCreatedNoteIds = <String>{};
   bool _autoFocusTitle = false;
   bool _isWide = false;
+  bool _simpleListExpanded = true;
 
   @override
   void dispose() {
@@ -133,6 +136,44 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
     );
   }
 
+  Widget _buildSimpleListSection(ThemeData theme, ColorScheme colorScheme) {
+    final header = InkWell(
+      onTap: () => setState(() => _simpleListExpanded = !_simpleListExpanded),
+      child: Container(
+        color: theme.scaffoldBackgroundColor,
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+        child: Row(
+          children: [
+            Text(
+              'QUICK LIST',
+              style: theme.textTheme.labelLarge?.copyWith(
+                color: colorScheme.onSurface.withValues(alpha: 0.6),
+                letterSpacing: 0.8,
+              ),
+            ),
+            const SizedBox(width: 4),
+            Icon(
+              _simpleListExpanded ? Icons.expand_more : Icons.chevron_right,
+              size: 18,
+              color: colorScheme.onSurface.withValues(alpha: 0.6),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        header,
+        if (_simpleListExpanded) ...[
+          const SimpleListSection(),
+          const SizedBox(height: 8),
+        ],
+      ],
+    );
+  }
+
   Widget _buildNoteList(
     BuildContext context,
     List<Note> notes,
@@ -215,6 +256,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     final asyncNotes = ref.watch(noteListProvider);
+    final showNotesQuickList = ref.watch(showNotesQuickListNotifierProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -232,7 +274,15 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
               context,
             ).push(MaterialPageRoute(builder: (_) => const _TrashScreen())),
           ),
-          if (_selectedNoteId != null)
+          if (_selectedNoteId != null) ...[
+            ExcludeFocus(
+              child: IconButton(
+                icon: const Icon(Icons.format_list_bulleted),
+                iconSize: 20,
+                tooltip: 'Toggle bullet',
+                onPressed: _editorController.toggleBullet,
+              ),
+            ),
             ExcludeFocus(
               child: IconButton(
                 icon: const Icon(Icons.check_box_outlined),
@@ -241,6 +291,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
                 onPressed: _editorController.toggleCheckbox,
               ),
             ),
+          ],
         ],
       ),
       floatingActionButton: _isWide
@@ -250,58 +301,74 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
               onPressed: () => _createNote(context, false),
               child: const Icon(Icons.add),
             ),
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          final isWide = constraints.maxWidth >= 600;
-          if (isWide != _isWide) {
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (mounted) setState(() => _isWide = isWide);
-            });
-          }
+      body: Column(
+        children: [
+          if (showNotesQuickList) _buildSimpleListSection(theme, cs),
+          Expanded(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final isWide = constraints.maxWidth >= 600;
+                if (isWide != _isWide) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (mounted) setState(() => _isWide = isWide);
+                  });
+                }
 
-          return asyncNotes.when(
-            loading: () => const Center(child: CircularProgressIndicator()),
-            error: (e, _) => Center(child: Text('Error: $e')),
-            data: (notes) {
-              _clearSelectionIfGone(notes);
-              if (isWide) {
-                return Row(
-                  children: [
-                    SizedBox(
-                      width: 280,
-                      child: _buildNoteList(context, notes, true, theme, cs),
-                    ),
-                    const VerticalDivider(width: 1),
-                    Expanded(
-                      child: _selectedNoteId != null
-                          ? NoteEditorPane(
-                              key: ValueKey(_selectedNoteId),
-                              noteId: _selectedNoteId!,
-                              autoFocusTitle: _autoFocusTitle,
-                              controller: _editorController,
-                              onDelete: () => setState(() {
-                                _selectedNoteId = null;
-                                _autoFocusTitle = false;
-                              }),
-                            )
-                          : Center(
-                              child: Text(
-                                'Select a note',
-                                style: TextStyle(
-                                  color: cs.onSurface.withValues(alpha: 0.4),
-                                  fontSize: 16,
-                                ),
-                              ),
+                return asyncNotes.when(
+                  loading: () =>
+                      const Center(child: CircularProgressIndicator()),
+                  error: (e, _) => Center(child: Text('Error: $e')),
+                  data: (notes) {
+                    _clearSelectionIfGone(notes);
+                    if (isWide) {
+                      return Row(
+                        children: [
+                          SizedBox(
+                            width: 280,
+                            child: _buildNoteList(
+                              context,
+                              notes,
+                              true,
+                              theme,
+                              cs,
                             ),
-                    ),
-                  ],
-                );
-              }
+                          ),
+                          const VerticalDivider(width: 1),
+                          Expanded(
+                            child: _selectedNoteId != null
+                                ? NoteEditorPane(
+                                    key: ValueKey(_selectedNoteId),
+                                    noteId: _selectedNoteId!,
+                                    autoFocusTitle: _autoFocusTitle,
+                                    controller: _editorController,
+                                    onDelete: () => setState(() {
+                                      _selectedNoteId = null;
+                                      _autoFocusTitle = false;
+                                    }),
+                                  )
+                                : Center(
+                                    child: Text(
+                                      'Select a note',
+                                      style: TextStyle(
+                                        color: cs.onSurface.withValues(
+                                          alpha: 0.4,
+                                        ),
+                                        fontSize: 16,
+                                      ),
+                                    ),
+                                  ),
+                          ),
+                        ],
+                      );
+                    }
 
-              return _buildNoteList(context, notes, false, theme, cs);
-            },
-          );
-        },
+                    return _buildNoteList(context, notes, false, theme, cs);
+                  },
+                );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }

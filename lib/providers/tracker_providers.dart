@@ -30,6 +30,11 @@ class TrackerMetrics extends _$TrackerMetrics {
     return m;
   }
 
+  Future<void> editMetric(String id, {String? name, String? unit, bool clearUnit = false}) async {
+    await _repo().updateMetric(id, name: name, unit: unit, clearUnit: clearUnit);
+    ref.invalidateSelf();
+  }
+
   Future<void> delete(String id) async {
     await _repo().deleteMetric(id);
     ref.invalidateSelf();
@@ -61,6 +66,23 @@ class TrackerEntries extends _$TrackerEntries {
       metricId: metricId,
       value: value,
       note: note,
+      recordedAt: recordedAt,
+    );
+    ref.invalidateSelf();
+  }
+
+  Future<void> editEntry(
+    String id, {
+    double? value,
+    String? note,
+    bool clearNote = false,
+    DateTime? recordedAt,
+  }) async {
+    await _repo().updateEntry(
+      id,
+      value: value,
+      note: note,
+      clearNote: clearNote,
       recordedAt: recordedAt,
     );
     ref.invalidateSelf();

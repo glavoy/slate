@@ -47,6 +47,33 @@ class TrackerRepository {
     );
   }
 
+  Future<void> updateMetric(String id, {String? name, String? unit, bool clearUnit = false}) async {
+    final now = nowIso();
+    final parts = <String>[];
+    final args = <dynamic>[];
+
+    if (name != null) {
+      parts.add('name = ?');
+      args.add(name);
+    }
+    if (clearUnit) {
+      parts.add('unit = NULL');
+    } else if (unit != null) {
+      parts.add('unit = ?');
+      args.add(unit);
+    }
+    if (parts.isEmpty) return;
+
+    parts.addAll(["updated_at = ?", "client_modified_at = ?", "sync_status = 'pending'"]);
+    args.addAll([now, now, id]);
+
+    _local.execute(
+      'UPDATE tracker_metrics SET ${parts.join(', ')} WHERE id = ?',
+      args,
+    );
+    SyncService.instance.syncSoon();
+  }
+
   Future<void> deleteMetric(String id) async {
     final now = nowIso();
     _local.transaction(() {
@@ -119,6 +146,43 @@ class TrackerRepository {
     return TrackerEntry.fromJson(
       _local.selectOne('SELECT * FROM tracker_entries WHERE id = ?', [id])!,
     );
+  }
+
+  Future<void> updateEntry(
+    String id, {
+    double? value,
+    String? note,
+    bool clearNote = false,
+    DateTime? recordedAt,
+  }) async {
+    final now = nowIso();
+    final parts = <String>[];
+    final args = <dynamic>[];
+
+    if (value != null) {
+      parts.add('value = ?');
+      args.add(value);
+    }
+    if (clearNote) {
+      parts.add('note = NULL');
+    } else if (note != null) {
+      parts.add('note = ?');
+      args.add(note);
+    }
+    if (recordedAt != null) {
+      parts.add('recorded_at = ?');
+      args.add(recordedAt.toUtc().toIso8601String());
+    }
+    if (parts.isEmpty) return;
+
+    parts.addAll(["updated_at = ?", "client_modified_at = ?", "sync_status = 'pending'"]);
+    args.addAll([now, now, id]);
+
+    _local.execute(
+      'UPDATE tracker_entries SET ${parts.join(', ')} WHERE id = ?',
+      args,
+    );
+    SyncService.instance.syncSoon();
   }
 
   Future<void> deleteEntry(String id) async {

@@ -131,6 +131,68 @@ class _MetricCard extends ConsumerWidget {
     return v.toStringAsFixed(2);
   }
 
+  Future<void> _editMetric(BuildContext context, WidgetRef ref) async {
+    final nameController = TextEditingController(text: metric.name);
+    final unitController = TextEditingController(text: metric.unit ?? '');
+    final formKey = GlobalKey<FormState>();
+
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Edit metric'),
+        content: Form(
+          key: formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                controller: nameController,
+                autofocus: true,
+                decoration: const InputDecoration(labelText: 'Name'),
+                validator: (v) =>
+                    (v ?? '').trim().isEmpty ? 'Required' : null,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: unitController,
+                decoration: const InputDecoration(
+                  labelText: 'Unit (optional)',
+                  hintText: 'e.g. kg, count',
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              if (formKey.currentState!.validate()) {
+                Navigator.of(ctx).pop(true);
+              }
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+
+    if (saved == true) {
+      final newUnit = unitController.text.trim().isEmpty
+          ? null
+          : unitController.text.trim();
+      await ref.read(trackerMetricsProvider.notifier).editMetric(
+            metric.id,
+            name: nameController.text.trim(),
+            unit: newUnit,
+            clearUnit: newUnit == null && metric.unit != null,
+          );
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final asyncEntries = ref.watch(trackerEntriesProvider(metric.id));
@@ -149,6 +211,7 @@ class _MetricCard extends ConsumerWidget {
               builder: (_) => TrackerMetricScreen(metric: metric),
             ),
           ),
+          onLongPress: () => _editMetric(context, ref),
           child: Padding(
             padding: const EdgeInsets.all(14),
             child: Row(

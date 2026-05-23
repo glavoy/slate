@@ -12,8 +12,9 @@ import '../repositories/note_repository.dart';
 const String _uncheckedMarker = '☐ ';
 const String _checkedMarker = '☑ ';
 const String _legacyCheckedMarker = '☒ ';
+const String _bulletMarker = '- ';
 
-String? _markerPrefix(String line) {
+String? _checkboxMarkerPrefix(String line) {
   if (line.startsWith(_uncheckedMarker)) return _uncheckedMarker;
   if (line.startsWith(_checkedMarker)) return _checkedMarker;
   if (line.startsWith(_legacyCheckedMarker)) return _legacyCheckedMarker;
@@ -25,6 +26,7 @@ bool _isCheckedMarker(String marker) =>
 
 String _normalizeCheckedMarkers(String text) =>
     text.replaceAll(_legacyCheckedMarker, _checkedMarker);
+
 
 /// Allows a parent AppBar to invoke actions inside the pane without a GlobalKey.
 /// The pane registers its callbacks on init and unregisters on dispose.
@@ -38,10 +40,12 @@ class NoteEditorController {
 
   int _register({
     required VoidCallback toggleCheckbox,
+    required VoidCallback toggleBullet,
     required VoidCallback focusTitle,
     required Future<void> Function(BuildContext) delete,
   }) {
     _toggleCheckboxFn = toggleCheckbox;
+    _toggleBulletFn = toggleBullet;
     _focusTitleFn = focusTitle;
     _deleteFn = delete;
     return ++_generation;
@@ -50,12 +54,16 @@ class NoteEditorController {
   void _unregister(int gen) {
     if (_generation == gen) {
       _toggleCheckboxFn = null;
+      _toggleBulletFn = null;
       _focusTitleFn = null;
       _deleteFn = null;
     }
   }
 
+  VoidCallback? _toggleBulletFn;
+
   void toggleCheckbox() => _toggleCheckboxFn?.call();
+  void toggleBullet() => _toggleBulletFn?.call();
   void focusTitle() => _focusTitleFn?.call();
   Future<void> confirmDelete(BuildContext context) =>
       _deleteFn?.call(context) ?? Future.value();
@@ -101,17 +109,16 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
   void initState() {
     super.initState();
     _controller = _NoteController(
-      onToggleMarker: (offset) => _toggleMarkerAt(
+      onToggleMarker: (offset, preserve) => _toggleMarkerAt(
         offset,
-        preserveSelection: _controller.selection.isValid
-            ? _controller.selection
-            : null,
+        preserveSelection: preserve,
       ),
     );
     _focusNode.addListener(_handleFocusChanged);
     if (widget.controller != null) {
       _controllerGeneration = widget.controller!._register(
         toggleCheckbox: _toggleCheckboxAtCursor,
+        toggleBullet: _toggleBulletAtCursor,
         focusTitle: _focusTitle,
         delete: _confirmDelete,
       );
@@ -237,29 +244,35 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
     final lineEndRaw = prepared.indexOf('\n', workingOffset);
     final lineEnd = lineEndRaw < 0 ? prepared.length : lineEndRaw;
     final line = prepared.substring(lineStart, lineEnd);
-    final marker = _markerPrefix(line);
+    final cbMarker = _checkboxMarkerPrefix(line);
+    final isBullet = line.startsWith(_bulletMarker);
 
     final String replacement;
     final int cursorAfter;
-    if (marker == null) {
-      replacement = _uncheckedMarker + line;
-      cursorAfter = lineStart + _uncheckedMarker.length;
-    } else if (marker == _uncheckedMarker) {
-      replacement = _checkedMarker + line.substring(marker.length);
+    if (cbMarker != null) {
+      // Has a checkbox marker — toggle checked ↔ unchecked.
+      final nextMarker =
+          cbMarker == _uncheckedMarker ? _checkedMarker : _uncheckedMarker;
+      replacement = nextMarker + line.substring(cbMarker.length);
       cursorAfter = _cursorAfterMarkerSwap(
         cursor: workingOffset,
         lineStart: lineStart,
-        oldMarker: marker,
-        newMarker: _checkedMarker,
+        oldMarker: cbMarker,
+        newMarker: nextMarker,
       );
-    } else {
-      replacement = _uncheckedMarker + line.substring(marker.length);
+    } else if (isBullet) {
+      // bullet line → convert to unchecked checkbox
+      replacement = _uncheckedMarker + line.substring(_bulletMarker.length);
       cursorAfter = _cursorAfterMarkerSwap(
         cursor: workingOffset,
         lineStart: lineStart,
-        oldMarker: marker,
+        oldMarker: _bulletMarker,
         newMarker: _uncheckedMarker,
       );
+    } else {
+      // plain line → add unchecked checkbox
+      replacement = _uncheckedMarker + line;
+      cursorAfter = lineStart + _uncheckedMarker.length;
     }
 
     final newText =
@@ -280,6 +293,15 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
     }
 
     _focusNode.requestFocus();
+    if (preserveSelection != null) {
+      // Lock the selection so the TextField's TapGestureRecognizer cannot
+      // overwrite it, regardless of the order gesture callbacks fire.
+      // Released after the next frame once all gesture processing is done.
+      _controller._selectionLock = newSelection;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _controller._selectionLock = null;
+      });
+    }
     _controller.value = TextEditingValue(text: newText, selection: newSelection);
     _scheduleSave();
   }
@@ -302,6 +324,72 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
         ? (sel.isCollapsed ? sel.baseOffset : sel.start)
         : _controller.text.length;
     _toggleMarkerAt(offset);
+  }
+
+  /// Toggle a bullet (`- `) on the current body line.
+  /// Bullet and checkbox are mutually exclusive: pressing bullet on a checkbox
+  /// line converts it to a bullet, and vice-versa.
+  void _toggleBulletAtCursor() {
+    final text = _controller.text;
+    final firstNewline = text.indexOf('\n');
+    final sel = _controller.selection;
+    final rawOffset = sel.isValid
+        ? (sel.isCollapsed ? sel.baseOffset : sel.start)
+        : text.length;
+
+    final String prepared;
+    final int workingOffset;
+    if (firstNewline == -1) {
+      prepared = '$text\n';
+      workingOffset = prepared.length;
+    } else if (rawOffset <= firstNewline) {
+      prepared = text;
+      workingOffset = firstNewline + 1;
+    } else {
+      prepared = text;
+      workingOffset = rawOffset.clamp(firstNewline + 1, text.length);
+    }
+
+    final lineStart = prepared.lastIndexOf('\n', workingOffset - 1) + 1;
+    final lineEndRaw = prepared.indexOf('\n', workingOffset);
+    final lineEnd = lineEndRaw < 0 ? prepared.length : lineEndRaw;
+    final line = prepared.substring(lineStart, lineEnd);
+
+    final String newLine;
+    final int cursorAfter;
+
+    if (line.startsWith(_bulletMarker)) {
+      // Remove bullet
+      newLine = line.substring(_bulletMarker.length);
+      cursorAfter = _cursorAfterMarkerSwap(
+        cursor: workingOffset,
+        lineStart: lineStart,
+        oldMarker: _bulletMarker,
+        newMarker: '',
+      );
+    } else {
+      final cbMarker = _checkboxMarkerPrefix(line);
+      final oldMarker = cbMarker ?? '';
+      // Convert checkbox → bullet, or add bullet to plain line
+      newLine = _bulletMarker + line.substring(oldMarker.length);
+      cursorAfter = _cursorAfterMarkerSwap(
+        cursor: workingOffset,
+        lineStart: lineStart,
+        oldMarker: oldMarker,
+        newMarker: _bulletMarker,
+      );
+    }
+
+    final newText =
+        prepared.substring(0, lineStart) + newLine + prepared.substring(lineEnd);
+    _focusNode.requestFocus();
+    _controller.value = TextEditingValue(
+      text: newText,
+      selection: TextSelection.collapsed(
+        offset: cursorAfter.clamp(0, newText.length),
+      ),
+    );
+    _scheduleSave();
   }
 
   Future<void> _confirmDelete(BuildContext context) async {
@@ -503,10 +591,26 @@ class _NoteSyncFooter extends StatelessWidget {
 class _NoteController extends TextEditingController {
   _NoteController({required this.onToggleMarker});
 
-  final void Function(int textOffset) onToggleMarker;
+  final void Function(int textOffset, TextSelection? preserve) onToggleMarker;
 
   static const double _iconSize = 18.0;
   static const double _iconGap = 6.0;
+
+  /// When set, any incoming value change that only moves the selection (text
+  /// unchanged) is silently overridden with this selection instead. Released
+  /// after the frame following a toggle, preventing the TextField's own
+  /// TapGestureRecognizer from moving the cursor regardless of firing order.
+  TextSelection? _selectionLock;
+
+  @override
+  set value(TextEditingValue newValue) {
+    final lock = _selectionLock;
+    if (lock != null && newValue.text == value.text) {
+      super.value = newValue.copyWith(selection: lock);
+    } else {
+      super.value = newValue;
+    }
+  }
 
   @override
   TextSpan buildTextSpan({
@@ -534,6 +638,10 @@ class _NoteController extends TextEditingController {
       const TextSpan(text: '\n'),
     ];
 
+    // Captured at pointer-down (before text-field gesture recognizer fires)
+    // so the selection doesn't drift when the user clicks a checkbox icon.
+    TextSelection? pointerDownSelection;
+
     var absoluteOffset = newlineIndex + 1;
     final lines = text.substring(newlineIndex + 1).split('\n');
 
@@ -542,10 +650,11 @@ class _NoteController extends TextEditingController {
 
       final line = lines[i];
       final lineStart = absoluteOffset;
-      final marker = _markerPrefix(line);
+      final cbMarker = _checkboxMarkerPrefix(line);
+      final isBullet = cbMarker == null && line.startsWith(_bulletMarker);
 
-      if (marker != null) {
-        final isChecked = _isCheckedMarker(marker);
+      if (cbMarker != null) {
+        final isChecked = _isCheckedMarker(cbMarker);
 
         // WidgetSpan for the glyph character (☐ or ☑).
         // Fixed iconSize width regardless of which glyph — no text shift on toggle.
@@ -553,18 +662,26 @@ class _NoteController extends TextEditingController {
           WidgetSpan(
             alignment: PlaceholderAlignment.middle,
             baseline: TextBaseline.alphabetic,
-            child: GestureDetector(
-              key: ValueKey('note-checkbox-icon-$lineStart'),
+            child: Listener(
               behavior: HitTestBehavior.opaque,
-              onTap: () => onToggleMarker(lineStart),
-              child: MouseRegion(
-                cursor: SystemMouseCursors.click,
-                child: Icon(
-                  isChecked ? Icons.check_box : Icons.check_box_outline_blank,
-                  size: _iconSize,
-                  color: isChecked
-                      ? cs.primary
-                      : cs.onSurface.withValues(alpha: 0.7),
+              onPointerDown: (_) {
+                pointerDownSelection = value.selection.isValid
+                    ? value.selection
+                    : null;
+              },
+              child: GestureDetector(
+                key: ValueKey('note-checkbox-icon-$lineStart'),
+                behavior: HitTestBehavior.opaque,
+                onTap: () => onToggleMarker(lineStart, pointerDownSelection),
+                child: MouseRegion(
+                  cursor: SystemMouseCursors.basic,
+                  child: Icon(
+                    isChecked ? Icons.check_box : Icons.check_box_outline_blank,
+                    size: _iconSize,
+                    color: isChecked
+                        ? cs.primary
+                        : cs.onSurface.withValues(alpha: 0.7),
+                  ),
                 ),
               ),
             ),
@@ -579,8 +696,40 @@ class _NoteController extends TextEditingController {
           ),
         );
 
-        if (line.length > marker.length) {
-          children.add(TextSpan(text: line.substring(marker.length)));
+        if (line.length > cbMarker.length) {
+          children.add(TextSpan(text: line.substring(cbMarker.length)));
+        }
+      } else if (isBullet) {
+        // WidgetSpan for '-' — renders as a small filled circle, same width as
+        // the checkbox icon so mixed lists stay aligned.
+        children.add(
+          WidgetSpan(
+            alignment: PlaceholderAlignment.middle,
+            baseline: TextBaseline.alphabetic,
+            child: SizedBox(
+              width: _iconSize,
+              height: _iconSize,
+              child: Center(
+                child: Icon(
+                  Icons.circle,
+                  size: 7.0,
+                  color: cs.onSurface.withValues(alpha: 0.7),
+                ),
+              ),
+            ),
+          ),
+        );
+
+        // WidgetSpan for the space after '-' — same gap as checkboxes.
+        children.add(
+          WidgetSpan(
+            alignment: PlaceholderAlignment.middle,
+            child: SizedBox(width: _iconGap, height: _iconSize),
+          ),
+        );
+
+        if (line.length > _bulletMarker.length) {
+          children.add(TextSpan(text: line.substring(_bulletMarker.length)));
         }
       } else if (line.isNotEmpty) {
         children.add(TextSpan(text: line));
@@ -635,7 +784,7 @@ class _NoteListFormatter extends TextInputFormatter {
   }
 
   String? _continuationMarker(String line) {
-    if (_markerPrefix(line) != null) return _uncheckedMarker;
+    if (_checkboxMarkerPrefix(line) != null) return _uncheckedMarker;
     if (line.startsWith(_hyphen)) return _hyphen;
     if (line.startsWith('-') && line.length > 1) return _hyphen;
     return null;
@@ -643,6 +792,6 @@ class _NoteListFormatter extends TextInputFormatter {
 
   bool _isEmptyListLine(String line, String marker) {
     if (marker == _hyphen) return line == '-' || line == _hyphen;
-    return _markerPrefix(line) != null && line.length == marker.length;
+    return _checkboxMarkerPrefix(line) != null && line.length == marker.length;
   }
 }

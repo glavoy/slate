@@ -27,6 +27,14 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
         actions: [
           ExcludeFocus(
             child: IconButton(
+              icon: const Icon(Icons.format_list_bulleted),
+              iconSize: 20,
+              tooltip: 'Toggle bullet',
+              onPressed: _editorController.toggleBullet,
+            ),
+          ),
+          ExcludeFocus(
+            child: IconButton(
               icon: const Icon(Icons.check_box_outlined),
               iconSize: 20,
               tooltip: 'Toggle checkbox',

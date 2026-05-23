@@ -5,7 +5,8 @@ part 'settings_providers.g.dart';
 
 const _dateFormatKey = 'date_format';
 const _timeFormatKey = 'time_format';
-const _showTaskQuickListKey = 'show_task_quick_list';
+const _legacyShowTaskQuickListKey = 'show_task_quick_list';
+const _showNotesQuickListKey = 'show_notes_quick_list';
 const _showCompletedTasksKey = 'show_completed_tasks';
 
 enum DateFormatStyle {
@@ -72,19 +73,29 @@ class TimeFormatNotifier extends _$TimeFormatNotifier {
 }
 
 @Riverpod(keepAlive: true)
-class ShowTaskQuickListNotifier extends _$ShowTaskQuickListNotifier {
+class ShowNotesQuickListNotifier extends _$ShowNotesQuickListNotifier {
   @override
   bool build() => true;
 
   Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
-    state = prefs.getBool(_showTaskQuickListKey) ?? true;
+    final stored = prefs.getBool(_showNotesQuickListKey);
+    if (stored != null) {
+      state = stored;
+      return;
+    }
+
+    final legacyStored = prefs.getBool(_legacyShowTaskQuickListKey);
+    state = legacyStored ?? true;
+    if (legacyStored != null) {
+      await prefs.setBool(_showNotesQuickListKey, legacyStored);
+    }
   }
 
   Future<void> set(bool value) async {
     state = value;
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_showTaskQuickListKey, value);
+    await prefs.setBool(_showNotesQuickListKey, value);
   }
 }
 
@@ -107,5 +118,5 @@ class ShowCompletedTasksNotifier extends _$ShowCompletedTasksNotifier {
 
 const dateFormatNotifierProvider = dateFormatProvider;
 const timeFormatNotifierProvider = timeFormatProvider;
-const showTaskQuickListNotifierProvider = showTaskQuickListProvider;
+const showNotesQuickListNotifierProvider = showNotesQuickListProvider;
 const showCompletedTasksNotifierProvider = showCompletedTasksProvider;
