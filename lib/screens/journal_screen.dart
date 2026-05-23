@@ -91,7 +91,7 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
       appBar: AppBar(
         centerTitle: false,
         title: const Text(
-          'Journal',
+          'Daily Log',
           style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.2),
         ),
         actions: const [],

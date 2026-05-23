@@ -6,7 +6,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/simple_list_providers.dart';
 
-const _bullet = '• ';
+const _bullet = '- ';
+const _legacyBullet = '• ';
 const _debounceDuration = Duration(milliseconds: 1200);
 const _idleBeforeRemoteSync = Duration(seconds: 3);
 final _bulletFormatter = _BulletFormatter();
@@ -19,7 +20,7 @@ class SimpleListSection extends ConsumerStatefulWidget {
 }
 
 class _SimpleListSectionState extends ConsumerState<SimpleListSection> {
-  final _controller = TextEditingController();
+  final _controller = _QuickListController();
   Timer? _debounce;
   String _lastSavedContent = '';
   DateTime _lastLocalEdit = DateTime.fromMillisecondsSinceEpoch(0);
@@ -42,13 +43,14 @@ class _SimpleListSectionState extends ConsumerState<SimpleListSection> {
   }
 
   void _initialize(String content) {
-    final initial = content.isEmpty ? _bullet : content;
+    final initial = _normalizeBullets(content.isEmpty ? _bullet : content);
     _controller.text = initial;
     _lastSavedContent = initial;
     _initialized = true;
   }
 
   void _applyRemote(String remoteContent) {
+    remoteContent = _normalizeBullets(remoteContent);
     if (remoteContent == _controller.text) return;
     if (remoteContent == _lastSavedContent) return;
     if (DateTime.now().difference(_lastLocalEdit) < _idleBeforeRemoteSync) {
@@ -110,7 +112,7 @@ class _SimpleListSectionState extends ConsumerState<SimpleListSection> {
                     border: InputBorder.none,
                     isDense: true,
                     contentPadding: EdgeInsets.zero,
-                    hintText: '• Add quick items here',
+                    hintText: '- Add quick items here',
                   ),
                   onChanged: _onChanged,
                 ),
@@ -120,6 +122,78 @@ class _SimpleListSectionState extends ConsumerState<SimpleListSection> {
         );
       },
     );
+  }
+}
+
+String _normalizeBullets(String text) {
+  if (text == _legacyBullet.trim()) return _bullet;
+  return text
+      .split('\n')
+      .map((line) {
+        if (line == _legacyBullet.trim()) return _bullet;
+        if (line.startsWith(_legacyBullet)) {
+          return _bullet + line.substring(_legacyBullet.length);
+        }
+        return line;
+      })
+      .join('\n');
+}
+
+class _QuickListController extends TextEditingController {
+  static const double _iconSize = 18.0;
+  static const double _iconGap = 6.0;
+
+  @override
+  TextSpan buildTextSpan({
+    required BuildContext context,
+    TextStyle? style,
+    required bool withComposing,
+  }) {
+    final base =
+        style ?? Theme.of(context).textTheme.bodyMedium ?? const TextStyle();
+    final colorScheme = Theme.of(context).colorScheme;
+    final lines = text.split('\n');
+    final children = <InlineSpan>[];
+
+    for (var i = 0; i < lines.length; i++) {
+      if (i > 0) children.add(const TextSpan(text: '\n'));
+
+      final line = lines[i];
+      if (!line.startsWith(_bullet)) {
+        children.add(TextSpan(text: line));
+        continue;
+      }
+
+      children.add(
+        WidgetSpan(
+          alignment: PlaceholderAlignment.middle,
+          baseline: TextBaseline.alphabetic,
+          child: SizedBox(
+            width: _iconSize,
+            height: _iconSize,
+            child: Center(
+              child: Icon(
+                Icons.circle,
+                size: 7.0,
+                color: colorScheme.onSurface.withValues(alpha: 0.7),
+              ),
+            ),
+          ),
+        ),
+      );
+      children.add(
+        const WidgetSpan(
+          alignment: PlaceholderAlignment.middle,
+          child: SizedBox(width: _iconGap, height: _iconSize),
+        ),
+      );
+
+      if (line.length > _bullet.length) {
+        children.add(TextSpan(text: line.substring(_bullet.length)));
+      }
+    }
+
+    return TextSpan(style: base, children: children);
   }
 }
 
@@ -136,9 +210,23 @@ class _BulletFormatter extends TextInputFormatter {
       );
     }
 
-    // User backspaced the trailing space from the first bullet (• → • ); fix
+    final normalized = _normalizeBullets(newValue.text);
+    if (normalized != newValue.text) {
+      final delta = normalized.length - newValue.text.length;
+      return TextEditingValue(
+        text: normalized,
+        selection: TextSelection.collapsed(
+          offset: (newValue.selection.baseOffset + delta).clamp(
+            0,
+            normalized.length,
+          ),
+        ),
+      );
+    }
+
+    // User backspaced the trailing space from the first bullet (-  → -); fix
     // in-place instead of prepending a second bullet symbol.
-    if (newValue.text.startsWith('•') && !newValue.text.startsWith(_bullet)) {
+    if (newValue.text.startsWith('-') && !newValue.text.startsWith(_bullet)) {
       final fixed = _bullet + newValue.text.substring(1);
       final offset = (newValue.selection.baseOffset + 1).clamp(0, fixed.length);
       return TextEditingValue(

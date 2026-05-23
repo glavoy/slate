@@ -17,6 +17,8 @@ class SettingsScreen extends ConsumerWidget {
     final timeStyle = ref.watch(timeFormatNotifierProvider);
     final showNotesQuickList = ref.watch(showNotesQuickListNotifierProvider);
     final showCompletedTasks = ref.watch(showCompletedTasksNotifierProvider);
+    final showTrackerSection = ref.watch(showTrackerSectionNotifierProvider);
+    final showDailyLogSection = ref.watch(showDailyLogSectionNotifierProvider);
     final user = ref.watch(currentUserProvider);
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
@@ -84,6 +86,26 @@ class SettingsScreen extends ConsumerWidget {
                   DropdownMenuItem(value: s, child: Text(s.example)),
               ],
             ),
+          ),
+
+          const Divider(height: 24),
+          _SectionHeader(theme: theme, label: 'SECTIONS'),
+
+          SwitchListTile(
+            secondary: const Icon(Icons.show_chart_outlined),
+            title: const Text('Show Tracker'),
+            value: showTrackerSection,
+            onChanged: (value) => ref
+                .read(showTrackerSectionNotifierProvider.notifier)
+                .set(value),
+          ),
+          SwitchListTile(
+            secondary: const Icon(Icons.event_note_outlined),
+            title: const Text('Show Daily Log'),
+            value: showDailyLogSection,
+            onChanged: (value) => ref
+                .read(showDailyLogSectionNotifierProvider.notifier)
+                .set(value),
           ),
 
           const Divider(height: 24),

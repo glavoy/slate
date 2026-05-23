@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../providers/settings_providers.dart';
 import '../providers/supabase_provider.dart';
 import '../sync/sync_service.dart';
 import 'home_screen.dart';
@@ -17,7 +18,7 @@ class MainScreen extends ConsumerStatefulWidget {
 }
 
 class _MainScreenState extends ConsumerState<MainScreen> {
-  int _index = 0;
+  _SectionId _selectedSection = _SectionId.tasks;
 
   @override
   void initState() {
@@ -25,54 +26,92 @@ class _MainScreenState extends ConsumerState<MainScreen> {
     SyncService.instance.syncSoon();
   }
 
-  // Last index is Settings — rendered specially on macOS (rail trailing slot)
-  // and as the rightmost item on mobile NavigationBar.
-  static const _destinations = <_Destination>[
-    _Destination('Tasks', Icons.check_circle_outline, Icons.check_circle),
-    _Destination('Notes', Icons.notes_outlined, Icons.notes),
-    _Destination('Journal', Icons.book_outlined, Icons.book),
-    _Destination('Tracker', Icons.show_chart_outlined, Icons.show_chart),
-    _Destination('Settings', Icons.settings_outlined, Icons.settings),
+  static const _allMainDestinations = <_Destination>[
+    _Destination(
+      _SectionId.tasks,
+      'Tasks',
+      Icons.check_circle_outline,
+      Icons.check_circle,
+    ),
+    _Destination(_SectionId.notes, 'Notes', Icons.notes_outlined, Icons.notes),
+    _Destination(
+      _SectionId.tracker,
+      'Tracker',
+      Icons.show_chart_outlined,
+      Icons.show_chart,
+    ),
+    _Destination(
+      _SectionId.dailyLog,
+      'Daily Log',
+      Icons.event_note_outlined,
+      Icons.event_note,
+    ),
   ];
 
-  static const _settingsIndex = 4;
+  static const _settingsDestination = _Destination(
+    _SectionId.settings,
+    'Settings',
+    Icons.settings_outlined,
+    Icons.settings,
+  );
 
-  Widget _screenAt(int i) => switch (i) {
-    0 => const HomeScreen(),
-    1 => const NotesScreen(),
-    2 => const JournalScreen(),
-    3 => const TrackerScreen(),
-    4 => const SettingsScreen(),
-    _ => const HomeScreen(),
+  Widget _screenFor(_SectionId id) => switch (id) {
+    _SectionId.tasks => const HomeScreen(),
+    _SectionId.notes => const NotesScreen(),
+    _SectionId.tracker => const TrackerScreen(),
+    _SectionId.dailyLog => const JournalScreen(),
+    _SectionId.settings => const SettingsScreen(),
   };
 
   @override
   Widget build(BuildContext context) {
+    final showTracker = ref.watch(showTrackerSectionNotifierProvider);
+    final showDailyLog = ref.watch(showDailyLogSectionNotifierProvider);
     final platform = Theme.of(context).platform;
     final useRail =
         platform == TargetPlatform.macOS ||
         platform == TargetPlatform.windows ||
         platform == TargetPlatform.linux;
 
+    final mainDestinations = [
+      for (final destination in _allMainDestinations)
+        if (destination.id != _SectionId.tracker || showTracker)
+          if (destination.id != _SectionId.dailyLog || showDailyLog)
+            destination,
+    ];
+    final destinations = [...mainDestinations, _settingsDestination];
+    final visibleIds = destinations.map((d) => d.id).toSet();
+    if (!visibleIds.contains(_selectedSection)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _selectedSection = _SectionId.tasks);
+      });
+    }
+
+    final selectedSection = visibleIds.contains(_selectedSection)
+        ? _selectedSection
+        : _SectionId.tasks;
+    final selectedIndex = destinations.indexWhere(
+      (d) => d.id == selectedSection,
+    );
     final stack = IndexedStack(
-      index: _index,
-      children: List.generate(_destinations.length, _screenAt),
+      index: selectedIndex,
+      children: [for (final d in destinations) _screenFor(d.id)],
     );
 
     if (useRail) {
-      final mainDestinations = _destinations.sublist(
-        0,
-        _destinations.length - 1,
-      );
-      final settings = _destinations[_settingsIndex];
-      final railSelectedIndex = _index == _settingsIndex ? null : _index;
+      final railSelectedIndex = selectedSection == _SectionId.settings
+          ? null
+          : mainDestinations.indexWhere((d) => d.id == selectedSection);
 
       return Scaffold(
         body: Row(
           children: [
             NavigationRail(
-              selectedIndex: railSelectedIndex,
-              onDestinationSelected: (i) => setState(() => _index = i),
+              selectedIndex: railSelectedIndex == null || railSelectedIndex < 0
+                  ? null
+                  : railSelectedIndex,
+              onDestinationSelected: (i) =>
+                  setState(() => _selectedSection = mainDestinations[i].id),
               labelType: NavigationRailLabelType.all,
               destinations: [
                 for (final d in mainDestinations)
@@ -98,16 +137,17 @@ class _MainScreenState extends ConsumerState<MainScreen> {
                         padding: const EdgeInsets.only(bottom: 12),
                         child: IconButton(
                           icon: Icon(
-                            _index == _settingsIndex
-                                ? settings.selectedIcon
-                                : settings.icon,
-                            color: _index == _settingsIndex
+                            selectedSection == _SectionId.settings
+                                ? _settingsDestination.selectedIcon
+                                : _settingsDestination.icon,
+                            color: selectedSection == _SectionId.settings
                                 ? Theme.of(context).colorScheme.primary
                                 : null,
                           ),
-                          tooltip: settings.label,
-                          onPressed: () =>
-                              setState(() => _index = _settingsIndex),
+                          tooltip: _settingsDestination.label,
+                          onPressed: () => setState(
+                            () => _selectedSection = _SectionId.settings,
+                          ),
                         ),
                       ),
                     ],
@@ -125,10 +165,11 @@ class _MainScreenState extends ConsumerState<MainScreen> {
     return Scaffold(
       body: stack,
       bottomNavigationBar: NavigationBar(
-        selectedIndex: _index,
-        onDestinationSelected: (i) => setState(() => _index = i),
+        selectedIndex: selectedIndex,
+        onDestinationSelected: (i) =>
+            setState(() => _selectedSection = destinations[i].id),
         destinations: [
-          for (final d in _destinations)
+          for (final d in destinations)
             NavigationDestination(
               icon: Icon(d.icon),
               selectedIcon: Icon(d.selectedIcon),
@@ -140,9 +181,12 @@ class _MainScreenState extends ConsumerState<MainScreen> {
   }
 }
 
+enum _SectionId { tasks, notes, tracker, dailyLog, settings }
+
 class _Destination {
+  final _SectionId id;
   final String label;
   final IconData icon;
   final IconData selectedIcon;
-  const _Destination(this.label, this.icon, this.selectedIcon);
+  const _Destination(this.id, this.label, this.icon, this.selectedIcon);
 }

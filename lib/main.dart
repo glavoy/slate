@@ -25,6 +25,8 @@ void main() async {
     container.read(timeFormatNotifierProvider.notifier).init(),
     container.read(showNotesQuickListNotifierProvider.notifier).init(),
     container.read(showCompletedTasksNotifierProvider.notifier).init(),
+    container.read(showTrackerSectionNotifierProvider.notifier).init(),
+    container.read(showDailyLogSectionNotifierProvider.notifier).init(),
   ]);
 
   runApp(

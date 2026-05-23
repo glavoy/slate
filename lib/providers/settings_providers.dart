@@ -8,6 +8,8 @@ const _timeFormatKey = 'time_format';
 const _legacyShowTaskQuickListKey = 'show_task_quick_list';
 const _showNotesQuickListKey = 'show_notes_quick_list';
 const _showCompletedTasksKey = 'show_completed_tasks';
+const _showTrackerSectionKey = 'show_tracker_section';
+const _showDailyLogSectionKey = 'show_daily_log_section';
 
 enum DateFormatStyle {
   dayMonthShort('Mon Jan 5'),
@@ -116,7 +118,43 @@ class ShowCompletedTasksNotifier extends _$ShowCompletedTasksNotifier {
   }
 }
 
+@Riverpod(keepAlive: true)
+class ShowTrackerSectionNotifier extends _$ShowTrackerSectionNotifier {
+  @override
+  bool build() => true;
+
+  Future<void> init() async {
+    final prefs = await SharedPreferences.getInstance();
+    state = prefs.getBool(_showTrackerSectionKey) ?? true;
+  }
+
+  Future<void> set(bool value) async {
+    state = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_showTrackerSectionKey, value);
+  }
+}
+
+@Riverpod(keepAlive: true)
+class ShowDailyLogSectionNotifier extends _$ShowDailyLogSectionNotifier {
+  @override
+  bool build() => true;
+
+  Future<void> init() async {
+    final prefs = await SharedPreferences.getInstance();
+    state = prefs.getBool(_showDailyLogSectionKey) ?? true;
+  }
+
+  Future<void> set(bool value) async {
+    state = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_showDailyLogSectionKey, value);
+  }
+}
+
 const dateFormatNotifierProvider = dateFormatProvider;
 const timeFormatNotifierProvider = timeFormatProvider;
 const showNotesQuickListNotifierProvider = showNotesQuickListProvider;
 const showCompletedTasksNotifierProvider = showCompletedTasksProvider;
+const showTrackerSectionNotifierProvider = showTrackerSectionProvider;
+const showDailyLogSectionNotifierProvider = showDailyLogSectionProvider;
