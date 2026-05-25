@@ -53,3 +53,6 @@ temp/
 *.g.dart
 
 /.claude
+
+/data
+

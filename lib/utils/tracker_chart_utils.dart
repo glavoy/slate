@@ -39,7 +39,7 @@ List<TrackerChartPoint> buildTrackerChartPoints({
   final totals = <DateTime, double>{for (final start in bucketStarts) start: 0};
 
   for (final entry in entries) {
-    final recorded = _dateOnly(entry.recordedAt.toLocal());
+    final recorded = _dateOnly(entry.recordedAt);
     if (recorded.isBefore(rangeStart) || recorded.isAfter(rangeEnd)) {
       continue;
     }

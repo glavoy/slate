@@ -24,6 +24,7 @@ class SyncService {
   static const periodicSyncInterval = Duration(seconds: 60);
   static const syncTimeout = Duration(seconds: 25);
   static const realtimeReconnectTimeout = Duration(seconds: 5);
+  static const _pullPageSize = 1000;
 
   static const _tables = <_SyncTable>[
     _SyncTable('tasks', 'id'),
@@ -59,6 +60,14 @@ class SyncService {
 
   Future<void> syncAfterResume() async {
     await _reconnectRealtime();
+    await syncNow(force: true);
+  }
+
+  Future<void> forceFullPull() async {
+    final local = _local;
+    if (local == null) return;
+
+    local.deleteMeta('last_sync_at');
     await syncNow(force: true);
   }
 
@@ -332,19 +341,33 @@ class SyncService {
   }) async {
     final syncTime = nowIso();
     for (final table in _tables) {
-      try {
-        dynamic query = client.from(table.name).select().eq('user_id', userId);
-        if (since != null) {
-          query = query.gte('updated_at', since);
+      var from = 0;
+
+      while (true) {
+        try {
+          dynamic query = client
+              .from(table.name)
+              .select()
+              .eq('user_id', userId);
+          if (since != null) {
+            query = query.gte('updated_at', since);
+          }
+          query = query
+              .order(table.keyColumn)
+              .range(from, from + _pullPageSize - 1);
+          final dynamic response = await query;
+          final rows = (response as List).cast<Map<String, dynamic>>();
+          for (final row in rows) {
+            _applyRemoteRow(local, table, row, userId, syncTime);
+          }
+
+          if (rows.length < _pullPageSize) break;
+          from += _pullPageSize;
+        } catch (error, stackTrace) {
+          // Continue pulling other tables even if one table is unavailable.
+          _logSyncError('pull ${table.name}', error, stackTrace);
+          break;
         }
-        final dynamic response = await query;
-        final rows = (response as List).cast<Map<String, dynamic>>();
-        for (final row in rows) {
-          _applyRemoteRow(local, table, row, userId, syncTime);
-        }
-      } catch (error, stackTrace) {
-        // Continue pulling other tables even if one table is unavailable.
-        _logSyncError('pull ${table.name}', error, stackTrace);
       }
     }
   }

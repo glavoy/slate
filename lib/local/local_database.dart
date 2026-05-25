@@ -188,6 +188,10 @@ class LocalDatabase {
       [key, value],
     );
   }
+
+  void deleteMeta(String key) {
+    execute('DELETE FROM sync_meta WHERE key = ?', [key]);
+  }
 }
 
 String nowIso() => DateTime.now().toUtc().toIso8601String();

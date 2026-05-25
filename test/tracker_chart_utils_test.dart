@@ -90,4 +90,21 @@ void main() {
     expect(points, hasLength(3));
     expect(points.map((point) => point.value), [2, 0, 4]);
   });
+
+  test(
+    'uses the stored date rather than shifting UTC entries to local dates',
+    () {
+      final points = buildTrackerChartPoints(
+        entries: [
+          entry('1', DateTime.utc(2026, 5, 1, 21), 5),
+          entry('2', DateTime.utc(2026, 5, 2, 21), 3),
+        ],
+        startDate: DateTime(2026, 5, 1),
+        endDate: DateTime(2026, 5, 2),
+        period: TrackerChartPeriod.daily,
+      );
+
+      expect(points.map((point) => point.value), [5, 3]);
+    },
+  );
 }

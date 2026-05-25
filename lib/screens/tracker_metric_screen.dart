@@ -49,6 +49,49 @@ class _TrackerMetricScreenState extends ConsumerState<TrackerMetricScreen> {
   String _formatDate(DateTime date, DateFormatStyle dateStyle) =>
       du.formatDateAs(date, dateStyle);
 
+  void _setChartPeriod(TrackerChartPeriod period, List<TrackerEntry> entries) {
+    setState(() {
+      _chartPeriod = period;
+      final range = _defaultRangeForPeriod(period, entries);
+      _chartStartDate = range.start;
+      _chartEndDate = range.end;
+    });
+  }
+
+  _ChartDateRange _defaultRangeForPeriod(
+    TrackerChartPeriod period,
+    List<TrackerEntry> entries,
+  ) {
+    final today = _dateOnly(DateTime.now());
+    final entryDates = entries.map((entry) => _dateOnly(entry.recordedAt));
+    final earliestEntry = entryDates.isEmpty
+        ? today
+        : entryDates.reduce((a, b) => a.isBefore(b) ? a : b);
+
+    switch (period) {
+      case TrackerChartPeriod.daily:
+        return _ChartDateRange(
+          start: today.subtract(const Duration(days: 29)),
+          end: today,
+        );
+      case TrackerChartPeriod.weekly:
+        return _ChartDateRange(
+          start: _weekStart(today).subtract(const Duration(days: 7 * 11)),
+          end: _weekEnd(today),
+        );
+      case TrackerChartPeriod.monthly:
+        return _ChartDateRange(
+          start: DateTime(earliestEntry.year, earliestEntry.month),
+          end: _monthEnd(today),
+        );
+      case TrackerChartPeriod.yearly:
+        return _ChartDateRange(
+          start: DateTime(earliestEntry.year),
+          end: DateTime(today.year, 12, 31),
+        );
+    }
+  }
+
   Future<void> _pickChartDate({required bool isStart}) async {
     final current = isStart ? _chartStartDate : _chartEndDate;
     final now = DateTime.now();
@@ -77,28 +120,9 @@ class _TrackerMetricScreenState extends ConsumerState<TrackerMetricScreen> {
     });
   }
 
-  String _formatRecorded(
-    DateTime dt,
-    DateFormatStyle dateStyle,
-    TimeFormatStyle timeStyle,
-  ) {
-    final local = dt.toLocal();
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final target = DateTime(local.year, local.month, local.day);
-    final diff = today.difference(target).inDays;
-    final hasTime = local.hour != 0 || local.minute != 0;
-    final datePart = diff == 0
-        ? 'Today'
-        : diff == 1
-        ? 'Yesterday'
-        : du.formatDateAs(local, dateStyle);
-    if (!hasTime) return datePart;
-    final timePart = du.formatTimeAs(
-      TimeOfDay(hour: local.hour, minute: local.minute),
-      timeStyle,
-    );
-    return '$datePart $timePart';
+  String _formatRecorded(DateTime dt, DateFormatStyle dateStyle) {
+    final recordedDate = DateTime(dt.year, dt.month, dt.day);
+    return du.formatDateAs(recordedDate, DateFormatStyle.medium);
   }
 
   Future<void> _showEntryDialog(
@@ -444,7 +468,6 @@ class _TrackerMetricScreenState extends ConsumerState<TrackerMetricScreen> {
     final colorScheme = theme.colorScheme;
     final asyncEntries = ref.watch(trackerEntriesProvider(metric.id));
     final dateStyle = ref.watch(dateFormatNotifierProvider);
-    final timeStyle = ref.watch(timeFormatNotifierProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -500,9 +523,7 @@ class _TrackerMetricScreenState extends ConsumerState<TrackerMetricScreen> {
                   onChartTypeChanged: (value) {
                     setState(() => _chartType = value);
                   },
-                  onPeriodChanged: (value) {
-                    setState(() => _chartPeriod = value);
-                  },
+                  onPeriodChanged: (value) => _setChartPeriod(value, entries),
                   onPickStart: () => _pickChartDate(isStart: true),
                   onPickEnd: () => _pickChartDate(isStart: false),
                 ),
@@ -522,60 +543,15 @@ class _TrackerMetricScreenState extends ConsumerState<TrackerMetricScreen> {
                         itemCount: entries.length,
                         itemBuilder: (_, i) {
                           final e = entries[i];
-                          return ListTile(
-                            title: Text(
-                              metric.unit != null
-                                  ? '${_formatValue(e.value)} ${metric.unit}'
-                                  : _formatValue(e.value),
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            subtitle: Text(
-                              [
-                                _formatRecorded(
-                                  e.recordedAt,
-                                  dateStyle,
-                                  timeStyle,
-                                ),
-                                if (e.note != null && e.note!.isNotEmpty)
-                                  e.note!,
-                              ].join(' · '),
-                            ),
-                            trailing: PopupMenuButton<_EntryAction>(
-                              onSelected: (action) {
-                                switch (action) {
-                                  case _EntryAction.edit:
-                                    _showEntryDialog(context, existing: e);
-                                  case _EntryAction.delete:
-                                    _deleteEntry(context, e);
-                                }
-                              },
-                              itemBuilder: (_) => const [
-                                PopupMenuItem(
-                                  value: _EntryAction.edit,
-                                  child: ListTile(
-                                    leading: Icon(Icons.edit_outlined),
-                                    title: Text('Edit'),
-                                    contentPadding: EdgeInsets.zero,
-                                  ),
-                                ),
-                                PopupMenuItem(
-                                  value: _EntryAction.delete,
-                                  child: ListTile(
-                                    leading: Icon(
-                                      Icons.delete_outline,
-                                      color: Colors.red,
-                                    ),
-                                    title: Text(
-                                      'Delete',
-                                      style: TextStyle(color: Colors.red),
-                                    ),
-                                    contentPadding: EdgeInsets.zero,
-                                  ),
-                                ),
-                              ],
-                            ),
+                          return _TrackerEntryRow(
+                            entry: e,
+                            unit: metric.unit,
+                            formatValue: _formatValue,
+                            formatRecorded: (date) =>
+                                _formatRecorded(date, dateStyle),
+                            onEdit: () =>
+                                _showEntryDialog(context, existing: e),
+                            onDelete: () => _deleteEntry(context, e),
                           );
                         },
                       ),
@@ -588,6 +564,105 @@ class _TrackerMetricScreenState extends ConsumerState<TrackerMetricScreen> {
         heroTag: 'fab_tracker_metric',
         onPressed: () => _showEntryDialog(context),
         child: const Icon(Icons.add),
+      ),
+    );
+  }
+}
+
+class _ChartDateRange {
+  final DateTime start;
+  final DateTime end;
+
+  const _ChartDateRange({required this.start, required this.end});
+}
+
+class _TrackerEntryRow extends StatelessWidget {
+  final TrackerEntry entry;
+  final String? unit;
+  final String Function(double value) formatValue;
+  final String Function(DateTime date) formatRecorded;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+
+  const _TrackerEntryRow({
+    required this.entry,
+    required this.unit,
+    required this.formatValue,
+    required this.formatRecorded,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final valueText = unit == null
+        ? formatValue(entry.value)
+        : '${formatValue(entry.value)} $unit';
+
+    return InkWell(
+      onTap: onEdit,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 96,
+              child: Text(
+                valueText,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                [
+                  formatRecorded(entry.recordedAt),
+                  if (entry.note != null && entry.note!.isNotEmpty) entry.note!,
+                ].join(' · '),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: colorScheme.onSurface.withValues(alpha: 0.76),
+                ),
+              ),
+            ),
+            PopupMenuButton<_EntryAction>(
+              tooltip: 'Entry actions',
+              onSelected: (action) {
+                switch (action) {
+                  case _EntryAction.edit:
+                    onEdit();
+                  case _EntryAction.delete:
+                    onDelete();
+                }
+              },
+              itemBuilder: (_) => const [
+                PopupMenuItem(
+                  value: _EntryAction.edit,
+                  child: ListTile(
+                    leading: Icon(Icons.edit_outlined),
+                    title: Text('Edit'),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+                PopupMenuItem(
+                  value: _EntryAction.delete,
+                  child: ListTile(
+                    leading: Icon(Icons.delete_outline, color: Colors.red),
+                    title: Text('Delete', style: TextStyle(color: Colors.red)),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -979,12 +1054,15 @@ class _TrackerBarChart extends StatelessWidget {
   Widget build(BuildContext context) {
     final maxY = _chartMaxY(points);
     final yInterval = _yAxisInterval(maxY);
+    final barWidth = _barWidth(points.length);
+    final groupsSpace = _barGroupSpace(points.length);
 
     return BarChart(
       BarChartData(
         minY: 0,
         maxY: maxY,
-        alignment: BarChartAlignment.spaceBetween,
+        alignment: BarChartAlignment.center,
+        groupsSpace: groupsSpace,
         gridData: FlGridData(
           drawVerticalLine: false,
           horizontalInterval: yInterval,
@@ -1014,6 +1092,9 @@ class _TrackerBarChart extends StatelessWidget {
             fitInsideHorizontally: true,
             fitInsideVertically: true,
             getTooltipItem: (group, groupIndex, rod, rodIndex) {
+              if (group.x < 0 || group.x >= points.length) {
+                return null;
+              }
               final point = points[group.x];
               return BarTooltipItem(
                 formatValue(point.value),
@@ -1034,7 +1115,7 @@ class _TrackerBarChart extends StatelessWidget {
               barRods: [
                 BarChartRodData(
                   toY: points[i].value,
-                  width: points.length > 40 ? 5 : 10,
+                  width: barWidth,
                   color: color,
                   borderRadius: const BorderRadius.vertical(
                     top: Radius.circular(4),
@@ -1091,10 +1172,17 @@ FlTitlesData _titlesData({
           return SideTitleWidget(
             meta: meta,
             angle: -math.pi / 2,
-            space: 36,
+            space: 34,
+            fitInside: SideTitleFitInsideData.fromTitleMeta(
+              meta,
+              enabled: true,
+              distanceFromEdge: 6,
+            ),
             child: Text(
               _shortPointLabel(points[index], period, formatDate),
               style: labelStyle,
+              maxLines: 1,
+              overflow: TextOverflow.visible,
               textAlign: TextAlign.center,
             ),
           );
@@ -1117,6 +1205,18 @@ double _chartMaxY(List<TrackerChartPoint> points) {
 double _yAxisInterval(double maxY) {
   if (maxY <= 4) return 1;
   return (maxY / 4).ceilToDouble();
+}
+
+double _barWidth(int pointCount) {
+  if (pointCount > 40) return 5;
+  if (pointCount > 24) return 8;
+  return 10;
+}
+
+double _barGroupSpace(int pointCount) {
+  if (pointCount > 40) return 13;
+  if (pointCount > 24) return 18;
+  return 28;
 }
 
 String _pointLabel(
@@ -1146,5 +1246,15 @@ String _shortPointLabel(
       return point.start.year.toString();
   }
 }
+
+DateTime _dateOnly(DateTime date) => DateTime(date.year, date.month, date.day);
+
+DateTime _weekStart(DateTime date) =>
+    DateTime(date.year, date.month, date.day - date.weekday + 1);
+
+DateTime _weekEnd(DateTime date) =>
+    _weekStart(date).add(const Duration(days: 6));
+
+DateTime _monthEnd(DateTime date) => DateTime(date.year, date.month + 1, 0);
 
 enum _EntryAction { edit, delete }
