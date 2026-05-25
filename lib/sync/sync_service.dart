@@ -67,34 +67,6 @@ class SyncService {
     await syncNow(force: true);
   }
 
-  Future<void> forceFullPull() async {
-    final local = _local;
-    final client = _client;
-    final user = client?.auth.currentUser;
-    if (local == null || client == null || user == null) return;
-
-    local.deleteMeta('last_sync_at');
-    await syncNow(force: true);
-
-    // Remove tracker_entries that Supabase no longer has. Any synced row
-    // whose last_synced_at pre-dates this sync was not touched by the pull
-    // and therefore doesn't exist on the server (e.g. orphans left behind
-    // after server-side edits that changed record IDs).
-    final lastSyncAt = local.getMeta('last_sync_at');
-    if (lastSyncAt != null) {
-      local.execute(
-        '''
-        DELETE FROM tracker_entries
-        WHERE user_id = ?
-          AND sync_status = 'synced'
-          AND (last_synced_at IS NULL OR last_synced_at < ?)
-        ''',
-        [user.id, lastSyncAt],
-      );
-      _changes.add(null);
-    }
-  }
-
   void syncSoonAfterResume() {
     unawaited(syncAfterResume());
   }
@@ -119,7 +91,6 @@ class SyncService {
         _logSyncMessage('sync timed out');
         _syncing = false;
         _syncStartedAt = null;
-        _syncRequested = true;
       },
     );
   }

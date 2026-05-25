@@ -6,7 +6,6 @@ import '../providers/auth_provider.dart';
 import '../providers/settings_providers.dart';
 import '../providers/supabase_provider.dart';
 import '../providers/theme_provider.dart';
-import '../sync/sync_service.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -148,16 +147,6 @@ class SettingsScreen extends ConsumerWidget {
           ),
 
           const Divider(height: 24),
-          _SectionHeader(theme: theme, label: 'SYNC'),
-
-          ListTile(
-            leading: const Icon(Icons.sync_outlined),
-            title: const Text('Force full sync'),
-            subtitle: const Text('Reload all remote rows from Supabase'),
-            onTap: () => _forceFullSync(context),
-          ),
-
-          const Divider(height: 24),
           _SectionHeader(theme: theme, label: 'ABOUT'),
 
           FutureBuilder<PackageInfo>(
@@ -179,17 +168,6 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
-  Future<void> _forceFullSync(BuildContext context) async {
-    final messenger = ScaffoldMessenger.of(context);
-    messenger.showSnackBar(
-      const SnackBar(content: Text('Starting full sync...')),
-    );
-
-    await SyncService.instance.forceFullPull();
-
-    if (!context.mounted) return;
-    messenger.showSnackBar(const SnackBar(content: Text('Full sync complete')));
-  }
 }
 
 class _SectionHeader extends StatelessWidget {
