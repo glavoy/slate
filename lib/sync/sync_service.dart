@@ -37,7 +37,11 @@ class SyncService {
     ),
     _SyncTable('simple_list', 'user_id'),
     _SyncTable('tracker_metrics', 'id'),
-    _SyncTable('tracker_entries', 'id'),
+    _SyncTable(
+      'tracker_entries',
+      'id',
+      localConflict: 'metric_id, user_id, recorded_at',
+    ),
   ];
 
   void configure({
@@ -65,10 +69,30 @@ class SyncService {
 
   Future<void> forceFullPull() async {
     final local = _local;
-    if (local == null) return;
+    final client = _client;
+    final user = client?.auth.currentUser;
+    if (local == null || client == null || user == null) return;
 
     local.deleteMeta('last_sync_at');
     await syncNow(force: true);
+
+    // Remove tracker_entries that Supabase no longer has. Any synced row
+    // whose last_synced_at pre-dates this sync was not touched by the pull
+    // and therefore doesn't exist on the server (e.g. orphans left behind
+    // after server-side edits that changed record IDs).
+    final lastSyncAt = local.getMeta('last_sync_at');
+    if (lastSyncAt != null) {
+      local.execute(
+        '''
+        DELETE FROM tracker_entries
+        WHERE user_id = ?
+          AND sync_status = 'synced'
+          AND (last_synced_at IS NULL OR last_synced_at < ?)
+        ''',
+        [user.id, lastSyncAt],
+      );
+      _changes.add(null);
+    }
   }
 
   void syncSoonAfterResume() {
@@ -398,7 +422,23 @@ class SyncService {
         'DELETE FROM ${table.name} WHERE ${table.keyColumn} = ? AND user_id = ?',
         [key, userId],
       );
+      // Also remove a local row found by composite key with a different id.
+      if (existing != null && existing[table.keyColumn] != key) {
+        local.execute(
+          'DELETE FROM ${table.name} WHERE ${table.keyColumn} = ? AND user_id = ?',
+          [existing[table.keyColumn], userId],
+        );
+      }
       return true;
+    }
+
+    // If we found an existing row by composite key but with a different id,
+    // delete it first so the upsert doesn't hit a UNIQUE constraint violation.
+    if (existing != null && existing[table.keyColumn] != key) {
+      local.execute(
+        'DELETE FROM ${table.name} WHERE ${table.keyColumn} = ? AND user_id = ?',
+        [existing[table.keyColumn], userId],
+      );
     }
 
     _upsertLocalRemoteRow(local, table.name, row, userId, syncTime);
@@ -410,24 +450,40 @@ class SyncService {
     _SyncTable table,
     Map<String, dynamic> row,
   ) {
+    // Always try the primary key first.
+    final byKey = local.selectOne(
+      'SELECT * FROM ${table.name} WHERE ${table.keyColumn} = ?',
+      [row[table.keyColumn]],
+    );
+    if (byKey != null) return byKey;
+
+    // For tables with a composite unique key, also look up by that key so we
+    // can detect a local row with a different id but the same logical identity.
     if (table.localConflict == 'user_id, entry_date') {
       final userId = row['user_id'];
       final entryDate = row['entry_date'];
       if (userId != null && entryDate != null) {
-        final existing = local.selectOne(
-          '''
-          SELECT * FROM ${table.name}
-          WHERE user_id = ? AND entry_date = ?
-          ''',
+        return local.selectOne(
+          'SELECT * FROM ${table.name} WHERE user_id = ? AND entry_date = ?',
           [userId, entryDate],
         );
-        if (existing != null) return existing;
       }
     }
-    return local.selectOne(
-      'SELECT * FROM ${table.name} WHERE ${table.keyColumn} = ?',
-      [row[table.keyColumn]],
-    );
+    if (table.localConflict == 'metric_id, user_id, recorded_at') {
+      final metricId = row['metric_id'];
+      final userId = row['user_id'];
+      final recordedAt = row['recorded_at'];
+      if (metricId != null && userId != null && recordedAt != null) {
+        return local.selectOne(
+          '''
+          SELECT * FROM tracker_entries
+          WHERE metric_id = ? AND user_id = ? AND recorded_at = ?
+          ''',
+          [metricId, userId, recordedAt],
+        );
+      }
+    }
+    return null;
   }
 
   Map<String, dynamic> _remotePayload(String table, Map<String, Object?> row) {
@@ -462,11 +518,14 @@ class SyncService {
     final normalized = _normalizeRemoteRow(table, row, userId, syncTime);
     final columns = normalized.keys.toList();
     final placeholders = List.filled(columns.length, '?').join(', ');
-    final assignments = columns.map((c) => '$c = excluded.$c').join(', ');
+    // INSERT OR REPLACE handles all UNIQUE/PK conflicts by deleting every
+    // conflicting row before inserting the new one.  This is necessary for
+    // tables like tracker_entries where a remote row can simultaneously
+    // conflict on the PRIMARY KEY (same id, different recorded_at) AND on the
+    // composite UNIQUE key (different id, same recorded_at).
     local.execute('''
-      INSERT INTO $table (${columns.join(', ')})
+      INSERT OR REPLACE INTO $table (${columns.join(', ')})
       VALUES ($placeholders)
-      ON CONFLICT(${_localConflictFor(table)}) DO UPDATE SET $assignments
       ''', columns.map((c) => normalized[c]).toList());
   }
 
@@ -502,12 +561,7 @@ class SyncService {
     return normalized;
   }
 
-  String _localConflictFor(String table) {
-    final config = _tables.firstWhere((t) => t.name == table);
-    return config.localConflict ?? config.keyColumn;
-  }
-
-  Set<String> _boolColumns(String table) => switch (table) {
+Set<String> _boolColumns(String table) => switch (table) {
     'tasks' => {'is_done'},
     'notes' => {'pinned'},
     _ => const <String>{},

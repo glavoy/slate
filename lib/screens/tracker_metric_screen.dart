@@ -32,6 +32,7 @@ class _TrackerMetricScreenState extends ConsumerState<TrackerMetricScreen> {
   TrackerChartPeriod _chartPeriod = TrackerChartPeriod.daily;
   late DateTime _chartStartDate;
   late DateTime _chartEndDate;
+  bool _chartExpanded = true;
 
   @override
   void initState() {
@@ -81,7 +82,7 @@ class _TrackerMetricScreenState extends ConsumerState<TrackerMetricScreen> {
         );
       case TrackerChartPeriod.monthly:
         return _ChartDateRange(
-          start: DateTime(earliestEntry.year, earliestEntry.month),
+          start: DateTime(today.year - 1, today.month),
           end: _monthEnd(today),
         );
       case TrackerChartPeriod.yearly:
@@ -137,11 +138,13 @@ class _TrackerMetricScreenState extends ConsumerState<TrackerMetricScreen> {
 
     final now = DateTime.now();
     final existingDt = existing?.recordedAt.toLocal();
+    final existingUtc = existing?.recordedAt;
     final hasExistingTime =
         existingDt != null && (existingDt.hour != 0 || existingDt.minute != 0);
 
-    DateTime selectedDate = existingDt != null
-        ? DateTime(existingDt.year, existingDt.month, existingDt.day)
+    // Use UTC components for the date so it matches what _formatRecorded displays.
+    DateTime selectedDate = existingUtc != null
+        ? DateTime(existingUtc.year, existingUtc.month, existingUtc.day)
         : DateTime(now.year, now.month, now.day);
     TimeOfDay? selectedTime = hasExistingTime
         ? TimeOfDay.fromDateTime(existingDt)
@@ -515,7 +518,6 @@ class _TrackerMetricScreenState extends ConsumerState<TrackerMetricScreen> {
                   period: _chartPeriod,
                   points: chartPoints,
                   unit: metric.unit,
-                  entryCount: entries.length,
                   startDate: _chartStartDate,
                   endDate: _chartEndDate,
                   formatValue: _formatValue,
@@ -526,6 +528,9 @@ class _TrackerMetricScreenState extends ConsumerState<TrackerMetricScreen> {
                   onPeriodChanged: (value) => _setChartPeriod(value, entries),
                   onPickStart: () => _pickChartDate(isStart: true),
                   onPickEnd: () => _pickChartDate(isStart: false),
+                  expanded: _chartExpanded,
+                  onToggleExpanded: () =>
+                      setState(() => _chartExpanded = !_chartExpanded),
                 ),
               ),
               const Divider(height: 1),
@@ -604,32 +609,41 @@ class _TrackerEntryRow extends StatelessWidget {
     return InkWell(
       onTap: onEdit,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 3),
         child: Row(
           children: [
-            SizedBox(
-              width: 96,
-              child: Text(
-                valueText,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
             Expanded(
-              child: Text(
-                [
-                  formatRecorded(entry.recordedAt),
-                  if (entry.note != null && entry.note!.isNotEmpty) entry.note!,
-                ].join(' · '),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: colorScheme.onSurface.withValues(alpha: 0.76),
-                ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    formatRecorded(entry.recordedAt),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: colorScheme.onSurface.withValues(alpha: 0.76),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    valueText,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  if (entry.note != null && entry.note!.isNotEmpty) ...[
+                    Text(
+                      ' · ${entry.note!}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurface.withValues(alpha: 0.55),
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ),
             PopupMenuButton<_EntryAction>(
@@ -675,7 +689,6 @@ class _TrackerChartPanel extends StatelessWidget {
   final TrackerChartPeriod period;
   final List<TrackerChartPoint> points;
   final String? unit;
-  final int entryCount;
   final DateTime startDate;
   final DateTime endDate;
   final String Function(double value) formatValue;
@@ -684,13 +697,14 @@ class _TrackerChartPanel extends StatelessWidget {
   final ValueChanged<TrackerChartPeriod> onPeriodChanged;
   final VoidCallback onPickStart;
   final VoidCallback onPickEnd;
+  final bool expanded;
+  final VoidCallback onToggleExpanded;
 
   const _TrackerChartPanel({
     required this.chartType,
     required this.period,
     required this.points,
     required this.unit,
-    required this.entryCount,
     required this.startDate,
     required this.endDate,
     required this.formatValue,
@@ -699,6 +713,8 @@ class _TrackerChartPanel extends StatelessWidget {
     required this.onPeriodChanged,
     required this.onPickStart,
     required this.onPickEnd,
+    required this.expanded,
+    required this.onToggleExpanded,
   });
 
   @override
@@ -721,150 +737,190 @@ class _TrackerChartPanel extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                SegmentedButton<TrackerChartType>(
-                  style: _compactSegmentedStyle(),
-                  segments: const [
-                    ButtonSegment(
-                      value: TrackerChartType.line,
-                      icon: Icon(Icons.show_chart, size: 18),
-                      label: Text('Line'),
-                    ),
-                    ButtonSegment(
-                      value: TrackerChartType.bar,
-                      icon: Icon(Icons.bar_chart, size: 18),
-                      label: Text('Bar'),
-                    ),
-                  ],
-                  selected: {chartType},
-                  onSelectionChanged: (selection) {
-                    onChartTypeChanged(selection.first);
-                  },
+          Row(
+            children: [
+              Expanded(
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      SegmentedButton<TrackerChartType>(
+                        style: _compactSegmentedStyle(),
+                        segments: const [
+                          ButtonSegment(
+                            value: TrackerChartType.line,
+                            icon: Icon(Icons.show_chart, size: 18),
+                            label: Text('Line'),
+                          ),
+                          ButtonSegment(
+                            value: TrackerChartType.bar,
+                            icon: Icon(Icons.bar_chart, size: 18),
+                            label: Text('Bar'),
+                          ),
+                        ],
+                        selected: {chartType},
+                        onSelectionChanged: (selection) {
+                          onChartTypeChanged(selection.first);
+                        },
+                      ),
+                      const SizedBox(width: 8),
+                      SegmentedButton<TrackerChartPeriod>(
+                        style: _compactSegmentedStyle(),
+                        segments: const [
+                          ButtonSegment(
+                            value: TrackerChartPeriod.daily,
+                            label: Text('Daily'),
+                          ),
+                          ButtonSegment(
+                            value: TrackerChartPeriod.weekly,
+                            label: Text('Weekly'),
+                          ),
+                          ButtonSegment(
+                            value: TrackerChartPeriod.monthly,
+                            label: Text('Monthly'),
+                          ),
+                          ButtonSegment(
+                            value: TrackerChartPeriod.yearly,
+                            label: Text('Yearly'),
+                          ),
+                        ],
+                        selected: {period},
+                        onSelectionChanged: (selection) {
+                          onPeriodChanged(selection.first);
+                        },
+                      ),
+                      const SizedBox(width: 8),
+                      _ChartDateButton(
+                        label: 'Start',
+                        value: formatDate(startDate),
+                        onPressed: onPickStart,
+                      ),
+                      const SizedBox(width: 8),
+                      _ChartDateButton(
+                        label: 'End',
+                        value: formatDate(endDate),
+                        onPressed: onPickEnd,
+                      ),
+                    ],
+                  ),
                 ),
-                const SizedBox(width: 8),
-                SegmentedButton<TrackerChartPeriod>(
-                  style: _compactSegmentedStyle(),
-                  segments: const [
-                    ButtonSegment(
-                      value: TrackerChartPeriod.daily,
-                      label: Text('Daily'),
-                    ),
-                    ButtonSegment(
-                      value: TrackerChartPeriod.weekly,
-                      label: Text('Weekly'),
-                    ),
-                    ButtonSegment(
-                      value: TrackerChartPeriod.monthly,
-                      label: Text('Monthly'),
-                    ),
-                    ButtonSegment(
-                      value: TrackerChartPeriod.yearly,
-                      label: Text('Yearly'),
-                    ),
-                  ],
-                  selected: {period},
-                  onSelectionChanged: (selection) {
-                    onPeriodChanged(selection.first);
-                  },
+              ),
+              IconButton(
+                icon: Icon(
+                  expanded ? Icons.expand_less : Icons.expand_more,
                 ),
-                const SizedBox(width: 8),
-                _ChartDateButton(
-                  label: 'Start',
-                  value: formatDate(startDate),
-                  onPressed: onPickStart,
-                ),
-                const SizedBox(width: 8),
-                _ChartDateButton(
-                  label: 'End',
-                  value: formatDate(endDate),
-                  onPressed: onPickEnd,
-                ),
-              ],
-            ),
+                tooltip: expanded ? 'Hide chart' : 'Show chart',
+                visualDensity: VisualDensity.compact,
+                onPressed: onToggleExpanded,
+              ),
+            ],
           ),
-          const SizedBox(height: 18),
-          SizedBox(
-            height: 232,
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final minimumChartWidth =
-                    points.length *
-                    (chartType == TrackerChartType.bar ? 30 : 36);
-                final chartWidth = minimumChartWidth > constraints.maxWidth
-                    ? minimumChartWidth.toDouble()
-                    : constraints.maxWidth;
+          AnimatedSize(
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeInOut,
+            child: expanded
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SizedBox(height: 18),
+                      SizedBox(
+                        height: 260,
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            final minimumChartWidth =
+                                points.length *
+                                (chartType == TrackerChartType.bar ? 30 : 36);
+                            final chartWidth =
+                                minimumChartWidth > constraints.maxWidth
+                                    ? minimumChartWidth.toDouble()
+                                    : constraints.maxWidth;
 
-                return Stack(
-                  children: [
-                    SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: SizedBox(
-                        width: chartWidth,
-                        child: Padding(
-                          padding: const EdgeInsets.only(top: 12, right: 4),
-                          child: chartType == TrackerChartType.line
-                              ? _TrackerLineChart(
-                                  points: points,
-                                  period: period,
-                                  unit: unit,
-                                  color: colorScheme.primary,
-                                  labelColor: colorScheme.onSurfaceVariant,
-                                  gridColor: colorScheme.outlineVariant
-                                      .withValues(alpha: 0.7),
-                                  tooltipColor: colorScheme.inverseSurface,
-                                  tooltipTextColor:
-                                      colorScheme.onInverseSurface,
-                                  formatValue: formatValue,
-                                  formatDate: formatDate,
-                                )
-                              : _TrackerBarChart(
-                                  points: points,
-                                  period: period,
-                                  color: colorScheme.primary,
-                                  labelColor: colorScheme.onSurfaceVariant,
-                                  gridColor: colorScheme.outlineVariant
-                                      .withValues(alpha: 0.7),
-                                  formatValue: formatValue,
-                                  formatDate: formatDate,
+                            return Stack(
+                              children: [
+                                SingleChildScrollView(
+                                  scrollDirection: Axis.horizontal,
+                                  child: SizedBox(
+                                    width: chartWidth,
+                                    child: Padding(
+                                      padding: const EdgeInsets.only(
+                                        top: 4,
+                                        right: 4,
+                                      ),
+                                      child: chartType == TrackerChartType.line
+                                          ? _TrackerLineChart(
+                                              points: points,
+                                              period: period,
+                                              unit: unit,
+                                              color: colorScheme.primary,
+                                              labelColor:
+                                                  colorScheme.onSurfaceVariant,
+                                              gridColor: colorScheme
+                                                  .outlineVariant
+                                                  .withValues(alpha: 0.7),
+                                              tooltipColor:
+                                                  colorScheme.inverseSurface,
+                                              tooltipTextColor:
+                                                  colorScheme.onInverseSurface,
+                                              formatValue: formatValue,
+                                              formatDate: formatDate,
+                                            )
+                                          : _TrackerBarChart(
+                                              points: points,
+                                              period: period,
+                                              color: colorScheme.primary,
+                                              labelColor:
+                                                  colorScheme.onSurfaceVariant,
+                                              gridColor: colorScheme
+                                                  .outlineVariant
+                                                  .withValues(alpha: 0.7),
+                                              tooltipColor:
+                                                  colorScheme.inverseSurface,
+                                              tooltipTextColor:
+                                                  colorScheme.onInverseSurface,
+                                              formatValue: formatValue,
+                                              formatDate: formatDate,
+                                            ),
+                                    ),
+                                  ),
                                 ),
+                                if (!hasRangeValue)
+                                  Center(
+                                    child: DecoratedBox(
+                                      decoration: BoxDecoration(
+                                        color: colorScheme.surface
+                                            .withValues(alpha: 0.92),
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 14,
+                                          vertical: 10,
+                                        ),
+                                        child: Text(
+                                          'No entries in this range',
+                                          style: theme.textTheme.bodyMedium
+                                              ?.copyWith(
+                                            color: colorScheme.onSurfaceVariant,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            );
+                          },
                         ),
                       ),
-                    ),
-                    if (!hasRangeValue)
-                      Center(
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            color: colorScheme.surface.withValues(alpha: 0.92),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 14,
-                              vertical: 10,
-                            ),
-                            child: Text(
-                              'No entries in this range',
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                color: colorScheme.onSurfaceVariant,
-                              ),
-                            ),
-                          ),
+                      const SizedBox(height: 6),
+                      Text(
+                        '${_periodLabel(period)} totals · ${formatDate(startDate)} to ${formatDate(endDate)}',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
                         ),
                       ),
-                  ],
-                );
-              },
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            '${_periodLabel(period)} totals · ${formatDate(startDate)} to ${formatDate(endDate)} ($entryCount ${entryCount == 1 ? 'entry' : 'entries'})',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: colorScheme.onSurfaceVariant,
-            ),
+                    ],
+                  )
+                : const SizedBox.shrink(),
           ),
         ],
       ),
@@ -965,7 +1021,7 @@ class _TrackerLineChart extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final maxY = _chartMaxY(points);
-    final yInterval = _yAxisInterval(maxY);
+    final yInterval = _niceInterval(maxY);
     final spots = [
       for (var i = 0; i < points.length; i++)
         FlSpot(i.toDouble(), points[i].value),
@@ -1037,6 +1093,8 @@ class _TrackerBarChart extends StatelessWidget {
   final Color color;
   final Color labelColor;
   final Color gridColor;
+  final Color tooltipColor;
+  final Color tooltipTextColor;
   final String Function(double value) formatValue;
   final String Function(DateTime date) formatDate;
 
@@ -1046,6 +1104,8 @@ class _TrackerBarChart extends StatelessWidget {
     required this.color,
     required this.labelColor,
     required this.gridColor,
+    required this.tooltipColor,
+    required this.tooltipTextColor,
     required this.formatValue,
     required this.formatDate,
   });
@@ -1053,16 +1113,15 @@ class _TrackerBarChart extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final maxY = _chartMaxY(points);
-    final yInterval = _yAxisInterval(maxY);
+    final yInterval = _niceInterval(maxY);
     final barWidth = _barWidth(points.length);
-    final groupsSpace = _barGroupSpace(points.length);
+    final showTopLabels = points.length <= 40;
 
     return BarChart(
       BarChartData(
         minY: 0,
         maxY: maxY,
-        alignment: BarChartAlignment.center,
-        groupsSpace: groupsSpace,
+        alignment: BarChartAlignment.spaceEvenly,
         gridData: FlGridData(
           drawVerticalLine: false,
           horizontalInterval: yInterval,
@@ -1083,25 +1142,25 @@ class _TrackerBarChart extends StatelessWidget {
           maxY: maxY,
           yInterval: yInterval,
           formatDate: formatDate,
+          topLabelGetter: showTopLabels
+              ? (i) => points[i].value > 0 ? formatValue(points[i].value) : ''
+              : null,
         ),
         barTouchData: BarTouchData(
           touchTooltipData: BarTouchTooltipData(
-            getTooltipColor: (_) => Colors.transparent,
-            tooltipPadding: EdgeInsets.zero,
-            tooltipMargin: 4,
+            getTooltipColor: (_) => tooltipColor,
             fitInsideHorizontally: true,
             fitInsideVertically: true,
             getTooltipItem: (group, groupIndex, rod, rodIndex) {
-              if (group.x < 0 || group.x >= points.length) {
-                return null;
-              }
+              if (group.x < 0 || group.x >= points.length) return null;
               final point = points[group.x];
+              if (point.value <= 0) return null;
               return BarTooltipItem(
-                formatValue(point.value),
+                '${_shortPointLabel(point, period, formatDate)}\n${formatValue(point.value)}',
                 TextStyle(
-                  color: labelColor,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
+                  color: tooltipTextColor,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
                 ),
               );
             },
@@ -1111,7 +1170,7 @@ class _TrackerBarChart extends StatelessWidget {
           for (var i = 0; i < points.length; i++)
             BarChartGroupData(
               x: i,
-              showingTooltipIndicators: points[i].value == 0 ? const [] : [0],
+              showingTooltipIndicators: const [],
               barRods: [
                 BarChartRodData(
                   toY: points[i].value,
@@ -1136,6 +1195,7 @@ FlTitlesData _titlesData({
   required double maxY,
   required double yInterval,
   required String Function(DateTime date) formatDate,
+  String Function(int index)? topLabelGetter,
 }) {
   final labelStyle = TextStyle(
     color: labelColor,
@@ -1144,7 +1204,41 @@ FlTitlesData _titlesData({
   );
 
   return FlTitlesData(
-    topTitles: const AxisTitles(),
+    topTitles: topLabelGetter == null
+        ? const AxisTitles()
+        : AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 28,
+              getTitlesWidget: (value, meta) {
+                final index = value.round();
+                if (index < 0 ||
+                    index >= points.length ||
+                    value != index.toDouble()) {
+                  return const SizedBox.shrink();
+                }
+                final text = topLabelGetter(index);
+                if (text.isEmpty) return const SizedBox.shrink();
+                return SideTitleWidget(
+                  meta: meta,
+                  angle: text.length > 2 ? -math.pi / 4 : 0.0,
+                  space: 2,
+                  fitInside: SideTitleFitInsideData.fromTitleMeta(
+                    meta,
+                    enabled: false,
+                  ),
+                  child: Text(
+                    text,
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: labelColor,
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
     rightTitles: const AxisTitles(),
     leftTitles: AxisTitles(
       sideTitles: SideTitles(
@@ -1152,7 +1246,7 @@ FlTitlesData _titlesData({
         reservedSize: 48,
         interval: yInterval,
         getTitlesWidget: (value, meta) {
-          if (value == 0 || value > maxY || value != value.roundToDouble()) {
+          if (value == 0 || value > maxY) {
             return const SizedBox.shrink();
           }
           return Text(value.round().toString(), style: labelStyle);
@@ -1162,7 +1256,11 @@ FlTitlesData _titlesData({
     bottomTitles: AxisTitles(
       sideTitles: SideTitles(
         showTitles: true,
-        reservedSize: 62,
+        // Space is measured from the axis to the top of the label's layout
+        // box (text height ~14px).  At –45° a label like "02 APR 2026"
+        // (~65px wide) extends ~23px upward past its layout top, so we need
+        // space ≥ 23px to keep it from overlapping the chart area.
+        reservedSize: 80,
         interval: 1,
         getTitlesWidget: (value, meta) {
           final index = value.round();
@@ -1171,19 +1269,17 @@ FlTitlesData _titlesData({
           }
           return SideTitleWidget(
             meta: meta,
-            angle: -math.pi / 2,
-            space: 34,
+            angle: -math.pi / 4,
+            space: 24,
             fitInside: SideTitleFitInsideData.fromTitleMeta(
               meta,
-              enabled: true,
-              distanceFromEdge: 6,
+              enabled: false,
             ),
             child: Text(
               _shortPointLabel(points[index], period, formatDate),
               style: labelStyle,
               maxLines: 1,
               overflow: TextOverflow.visible,
-              textAlign: TextAlign.center,
             ),
           );
         },
@@ -1195,28 +1291,38 @@ FlTitlesData _titlesData({
 double _chartMaxY(List<TrackerChartPoint> points) {
   final maxValue = points.fold<double>(
     0,
-    (max, point) => point.value > max ? point.value : max,
+    (m, p) => p.value > m ? p.value : m,
   );
-  if (maxValue <= 0) return 1;
-  final paddedMax = maxValue * 1.18;
-  return paddedMax.ceilToDouble();
+  if (maxValue <= 0) return 5;
+  final interval = _niceInterval(maxValue * 1.1);
+  return ((maxValue * 1.1) / interval).ceil() * interval;
 }
 
-double _yAxisInterval(double maxY) {
-  if (maxY <= 4) return 1;
-  return (maxY / 4).ceilToDouble();
+// Returns a "nice" grid interval for a given data range (targeting ~5 steps).
+double _niceInterval(double range) {
+  if (range <= 0) return 1;
+  final raw = range / 5;
+  if (raw < 1) return 1;
+  final magnitude =
+      math.pow(10, (math.log(raw) / math.ln10).floor()).toDouble();
+  final residual = raw / magnitude;
+  final double nice;
+  if (residual <= 1) {
+    nice = 1;
+  } else if (residual <= 2) {
+    nice = 2;
+  } else if (residual <= 5) {
+    nice = 5;
+  } else {
+    nice = 10;
+  }
+  return nice * magnitude;
 }
 
 double _barWidth(int pointCount) {
   if (pointCount > 40) return 5;
   if (pointCount > 24) return 8;
   return 10;
-}
-
-double _barGroupSpace(int pointCount) {
-  if (pointCount > 40) return 13;
-  if (pointCount > 24) return 18;
-  return 28;
 }
 
 String _pointLabel(
@@ -1235,17 +1341,24 @@ String _shortPointLabel(
   TrackerChartPeriod period,
   String Function(DateTime date) formatDate,
 ) {
+  final d = point.start;
   switch (period) {
     case TrackerChartPeriod.daily:
-      return '${point.start.month}/${point.start.day}';
     case TrackerChartPeriod.weekly:
-      return '${point.start.month}/${point.start.day}';
+      return '${d.day.toString().padLeft(2, '0')} ${_monthAbbr(d.month)} ${d.year}';
     case TrackerChartPeriod.monthly:
-      return '${point.start.month}/${point.start.year % 100}';
+      return '${_monthAbbr(d.month)} ${d.year}';
     case TrackerChartPeriod.yearly:
-      return point.start.year.toString();
+      return d.year.toString();
   }
 }
+
+const _monthAbbrs = [
+  '', 'JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN',
+  'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC',
+];
+
+String _monthAbbr(int month) => _monthAbbrs[month.clamp(1, 12)];
 
 DateTime _dateOnly(DateTime date) => DateTime(date.year, date.month, date.day);
 

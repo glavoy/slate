@@ -136,9 +136,67 @@ class LocalDatabase {
         sync_status TEXT NOT NULL DEFAULT 'synced',
         last_synced_at TEXT,
         client_modified_at TEXT NOT NULL,
-        pending_delete INTEGER NOT NULL DEFAULT 0
+        pending_delete INTEGER NOT NULL DEFAULT 0,
+        UNIQUE(metric_id, user_id, recorded_at)
       );
     ''');
+
+    _migrateSchema();
+  }
+
+  void _migrateSchema() {
+    final version =
+        db.select('PRAGMA user_version').first['user_version'] as int;
+    if (version < 1) _migrateToV1();
+  }
+
+  void _migrateToV1() {
+    // Add UNIQUE(metric_id, user_id, recorded_at) to tracker_entries.
+    // SQLite can't ADD CONSTRAINT, so recreate the table.
+    db.execute('BEGIN IMMEDIATE;');
+    try {
+      db.execute('''
+        CREATE TABLE tracker_entries_new (
+          id TEXT PRIMARY KEY,
+          metric_id TEXT NOT NULL,
+          user_id TEXT NOT NULL,
+          value REAL NOT NULL,
+          recorded_at TEXT NOT NULL,
+          note TEXT,
+          updated_at TEXT NOT NULL,
+          sync_deleted_at TEXT,
+          sync_status TEXT NOT NULL DEFAULT 'synced',
+          last_synced_at TEXT,
+          client_modified_at TEXT NOT NULL,
+          pending_delete INTEGER NOT NULL DEFAULT 0,
+          UNIQUE(metric_id, user_id, recorded_at)
+        );
+      ''');
+      // For each (metric_id, user_id, recorded_at) group keep one row:
+      // pending beats synced; within the same status, latest updated_at wins.
+      db.execute('''
+        INSERT OR IGNORE INTO tracker_entries_new
+        SELECT * FROM tracker_entries t1
+        WHERE t1.rowid = (
+          SELECT t2.rowid
+          FROM tracker_entries t2
+          WHERE t2.metric_id  = t1.metric_id
+            AND t2.user_id    = t1.user_id
+            AND t2.recorded_at = t1.recorded_at
+          ORDER BY
+            CASE WHEN t2.sync_status = 'pending' THEN 0 ELSE 1 END ASC,
+            t2.updated_at DESC
+          LIMIT 1
+        );
+      ''');
+      db.execute('DROP TABLE tracker_entries;');
+      db.execute('ALTER TABLE tracker_entries_new RENAME TO tracker_entries;');
+      db.execute('PRAGMA user_version = 1;');
+      db.execute('COMMIT;');
+    } catch (_) {
+      db.execute('ROLLBACK;');
+      rethrow;
+    }
   }
 
   List<Map<String, Object?>> select(
