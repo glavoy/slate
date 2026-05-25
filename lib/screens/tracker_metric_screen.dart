@@ -1,6 +1,8 @@
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:file_selector/file_selector.dart';
+import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -11,8 +13,8 @@ import '../models/tracker_entry.dart';
 import '../models/tracker_metric.dart';
 import '../providers/settings_providers.dart';
 import '../providers/tracker_providers.dart';
+import '../utils/tracker_chart_utils.dart';
 import '../utils/date_utils.dart' as du;
-import '../widgets/sparkline.dart';
 
 class TrackerMetricScreen extends ConsumerStatefulWidget {
   final TrackerMetric metric;
@@ -26,13 +28,60 @@ class TrackerMetricScreen extends ConsumerStatefulWidget {
 class _TrackerMetricScreenState extends ConsumerState<TrackerMetricScreen> {
   TrackerMetric get metric => widget.metric;
 
+  TrackerChartType _chartType = TrackerChartType.bar;
+  TrackerChartPeriod _chartPeriod = TrackerChartPeriod.daily;
+  late DateTime _chartStartDate;
+  late DateTime _chartEndDate;
+
+  @override
+  void initState() {
+    super.initState();
+    final today = DateTime.now();
+    _chartEndDate = DateTime(today.year, today.month, today.day);
+    _chartStartDate = _chartEndDate.subtract(const Duration(days: 29));
+  }
+
   String _formatValue(double v) {
     if (v == v.roundToDouble()) return v.toInt().toString();
     return v.toStringAsFixed(2);
   }
 
+  String _formatDate(DateTime date, DateFormatStyle dateStyle) =>
+      du.formatDateAs(date, dateStyle);
+
+  Future<void> _pickChartDate({required bool isStart}) async {
+    final current = isStart ? _chartStartDate : _chartEndDate;
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: current,
+      firstDate: DateTime(2000),
+      lastDate: today,
+    );
+    if (picked == null) return;
+
+    final normalized = DateTime(picked.year, picked.month, picked.day);
+    setState(() {
+      if (isStart) {
+        _chartStartDate = normalized;
+        if (_chartStartDate.isAfter(_chartEndDate)) {
+          _chartEndDate = _chartStartDate;
+        }
+      } else {
+        _chartEndDate = normalized;
+        if (_chartEndDate.isBefore(_chartStartDate)) {
+          _chartStartDate = _chartEndDate;
+        }
+      }
+    });
+  }
+
   String _formatRecorded(
-      DateTime dt, DateFormatStyle dateStyle, TimeFormatStyle timeStyle) {
+    DateTime dt,
+    DateFormatStyle dateStyle,
+    TimeFormatStyle timeStyle,
+  ) {
     final local = dt.toLocal();
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
@@ -42,32 +91,37 @@ class _TrackerMetricScreenState extends ConsumerState<TrackerMetricScreen> {
     final datePart = diff == 0
         ? 'Today'
         : diff == 1
-            ? 'Yesterday'
-            : du.formatDateAs(local, dateStyle);
+        ? 'Yesterday'
+        : du.formatDateAs(local, dateStyle);
     if (!hasTime) return datePart;
     final timePart = du.formatTimeAs(
-        TimeOfDay(hour: local.hour, minute: local.minute), timeStyle);
+      TimeOfDay(hour: local.hour, minute: local.minute),
+      timeStyle,
+    );
     return '$datePart $timePart';
   }
 
-  Future<void> _showEntryDialog(BuildContext context,
-      {TrackerEntry? existing}) async {
-    final valueController =
-        TextEditingController(text: existing != null ? _formatValue(existing.value) : '');
-    final noteController =
-        TextEditingController(text: existing?.note ?? '');
+  Future<void> _showEntryDialog(
+    BuildContext context, {
+    TrackerEntry? existing,
+  }) async {
+    final valueController = TextEditingController(
+      text: existing != null ? _formatValue(existing.value) : '',
+    );
+    final noteController = TextEditingController(text: existing?.note ?? '');
     final formKey = GlobalKey<FormState>();
 
     final now = DateTime.now();
     final existingDt = existing?.recordedAt.toLocal();
-    final hasExistingTime = existingDt != null &&
-        (existingDt.hour != 0 || existingDt.minute != 0);
+    final hasExistingTime =
+        existingDt != null && (existingDt.hour != 0 || existingDt.minute != 0);
 
     DateTime selectedDate = existingDt != null
         ? DateTime(existingDt.year, existingDt.month, existingDt.day)
         : DateTime(now.year, now.month, now.day);
-    TimeOfDay? selectedTime =
-        hasExistingTime ? TimeOfDay.fromDateTime(existingDt) : null;
+    TimeOfDay? selectedTime = hasExistingTime
+        ? TimeOfDay.fromDateTime(existingDt)
+        : null;
 
     final saved = await showDialog<bool>(
       context: context,
@@ -95,7 +149,9 @@ class _TrackerMetricScreenState extends ConsumerState<TrackerMetricScreen> {
                     controller: valueController,
                     autofocus: existing == null,
                     keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true, signed: true),
+                      decimal: true,
+                      signed: true,
+                    ),
                     inputFormatters: [
                       FilteringTextInputFormatter.allow(RegExp(r'[0-9.\-]')),
                     ],
@@ -135,8 +191,10 @@ class _TrackerMetricScreenState extends ConsumerState<TrackerMetricScreen> {
                   // Time toggle
                   Row(
                     children: [
-                      Text('Add time',
-                          style: Theme.of(ctx).textTheme.bodySmall),
+                      Text(
+                        'Add time',
+                        style: Theme.of(ctx).textTheme.bodySmall,
+                      ),
                       Switch(
                         value: selectedTime != null,
                         onChanged: (on) async {
@@ -169,8 +227,9 @@ class _TrackerMetricScreenState extends ConsumerState<TrackerMetricScreen> {
                   const SizedBox(height: 4),
                   TextFormField(
                     controller: noteController,
-                    decoration:
-                        const InputDecoration(labelText: 'Note (optional)'),
+                    decoration: const InputDecoration(
+                      labelText: 'Note (optional)',
+                    ),
                   ),
                 ],
               ),
@@ -203,8 +262,9 @@ class _TrackerMetricScreenState extends ConsumerState<TrackerMetricScreen> {
         selectedTime?.minute ?? 0,
       );
       final value = double.parse(valueController.text);
-      final note =
-          noteController.text.trim().isEmpty ? null : noteController.text.trim();
+      final note = noteController.text.trim().isEmpty
+          ? null
+          : noteController.text.trim();
       final notifier = ref.read(trackerEntriesProvider(metric.id).notifier);
 
       if (existing != null) {
@@ -221,14 +281,14 @@ class _TrackerMetricScreenState extends ConsumerState<TrackerMetricScreen> {
     }
   }
 
-  Future<void> _deleteEntry(
-      BuildContext context, TrackerEntry entry) async {
+  Future<void> _deleteEntry(BuildContext context, TrackerEntry entry) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Delete entry?'),
         content: Text(
-            'Remove ${_formatValue(entry.value)}${metric.unit != null ? ' ${metric.unit}' : ''}?'),
+          'Remove ${_formatValue(entry.value)}${metric.unit != null ? ' ${metric.unit}' : ''}?',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
@@ -255,7 +315,8 @@ class _TrackerMetricScreenState extends ConsumerState<TrackerMetricScreen> {
       builder: (ctx) => AlertDialog(
         title: Text('Delete ${metric.name}?'),
         content: const Text(
-            'This will remove the metric and all its logged entries.'),
+          'This will remove the metric and all its logged entries.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
@@ -293,8 +354,7 @@ class _TrackerMetricScreenState extends ConsumerState<TrackerMetricScreen> {
                 controller: nameController,
                 autofocus: true,
                 decoration: const InputDecoration(labelText: 'Name'),
-                validator: (v) =>
-                    (v ?? '').trim().isEmpty ? 'Required' : null,
+                validator: (v) => (v ?? '').trim().isEmpty ? 'Required' : null,
               ),
               const SizedBox(height: 12),
               TextFormField(
@@ -328,7 +388,9 @@ class _TrackerMetricScreenState extends ConsumerState<TrackerMetricScreen> {
       final newUnit = unitController.text.trim().isEmpty
           ? null
           : unitController.text.trim();
-      await ref.read(trackerMetricsProvider.notifier).editMetric(
+      await ref
+          .read(trackerMetricsProvider.notifier)
+          .editMetric(
             metric.id,
             name: nameController.text.trim(),
             unit: newUnit,
@@ -338,7 +400,9 @@ class _TrackerMetricScreenState extends ConsumerState<TrackerMetricScreen> {
   }
 
   Future<void> _exportCsv(
-      BuildContext context, List<TrackerEntry> entries) async {
+    BuildContext context,
+    List<TrackerEntry> entries,
+  ) async {
     final buffer = StringBuffer();
     buffer.writeln('recorded_at,value,note');
     for (final e in entries) {
@@ -412,70 +476,35 @@ class _TrackerMetricScreenState extends ConsumerState<TrackerMetricScreen> {
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text('Error: $e')),
         data: (entries) {
-          final sparkValues =
-              entries.reversed.map((e) => e.value).toList();
-          final latest = entries.isNotEmpty ? entries.first : null;
+          final chartPoints = buildTrackerChartPoints(
+            entries: entries,
+            startDate: _chartStartDate,
+            endDate: _chartEndDate,
+            period: _chartPeriod,
+          );
 
           return Column(
             children: [
               Padding(
                 padding: const EdgeInsets.all(16),
-                child: Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: theme.brightness == Brightness.dark
-                        ? colorScheme.surfaceContainerHigh
-                        : colorScheme.surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Text(
-                            latest != null
-                                ? _formatValue(latest.value)
-                                : '—',
-                            style: theme.textTheme.displaySmall?.copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          if (metric.unit != null) ...[
-                            const SizedBox(width: 6),
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 8),
-                              child: Text(
-                                metric.unit!,
-                                style: theme.textTheme.titleMedium?.copyWith(
-                                  color: colorScheme.onSurface
-                                      .withValues(alpha: 0.6),
-                                ),
-                              ),
-                            ),
-                          ],
-                          const Spacer(),
-                          Text(
-                            '${entries.length} ${entries.length == 1 ? 'entry' : 'entries'}',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: colorScheme.onSurface
-                                  .withValues(alpha: 0.6),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      SizedBox(
-                        height: 80,
-                        child: Sparkline(
-                          values: sparkValues,
-                          color: colorScheme.primary,
-                          strokeWidth: 2.5,
-                        ),
-                      ),
-                    ],
-                  ),
+                child: _TrackerChartPanel(
+                  chartType: _chartType,
+                  period: _chartPeriod,
+                  points: chartPoints,
+                  unit: metric.unit,
+                  entryCount: entries.length,
+                  startDate: _chartStartDate,
+                  endDate: _chartEndDate,
+                  formatValue: _formatValue,
+                  formatDate: (date) => _formatDate(date, dateStyle),
+                  onChartTypeChanged: (value) {
+                    setState(() => _chartType = value);
+                  },
+                  onPeriodChanged: (value) {
+                    setState(() => _chartPeriod = value);
+                  },
+                  onPickStart: () => _pickChartDate(isStart: true),
+                  onPickEnd: () => _pickChartDate(isStart: false),
                 ),
               ),
               const Divider(height: 1),
@@ -485,8 +514,7 @@ class _TrackerMetricScreenState extends ConsumerState<TrackerMetricScreen> {
                         child: Text(
                           'No entries yet — tap + to log a value',
                           style: TextStyle(
-                            color: colorScheme.onSurface
-                                .withValues(alpha: 0.5),
+                            color: colorScheme.onSurface.withValues(alpha: 0.5),
                           ),
                         ),
                       )
@@ -500,12 +528,16 @@ class _TrackerMetricScreenState extends ConsumerState<TrackerMetricScreen> {
                                   ? '${_formatValue(e.value)} ${metric.unit}'
                                   : _formatValue(e.value),
                               style: const TextStyle(
-                                  fontWeight: FontWeight.w600),
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                             subtitle: Text(
                               [
                                 _formatRecorded(
-                                    e.recordedAt, dateStyle, timeStyle),
+                                  e.recordedAt,
+                                  dateStyle,
+                                  timeStyle,
+                                ),
                                 if (e.note != null && e.note!.isNotEmpty)
                                   e.note!,
                               ].join(' · '),
@@ -531,11 +563,14 @@ class _TrackerMetricScreenState extends ConsumerState<TrackerMetricScreen> {
                                 PopupMenuItem(
                                   value: _EntryAction.delete,
                                   child: ListTile(
-                                    leading: Icon(Icons.delete_outline,
-                                        color: Colors.red),
-                                    title: Text('Delete',
-                                        style:
-                                            TextStyle(color: Colors.red)),
+                                    leading: Icon(
+                                      Icons.delete_outline,
+                                      color: Colors.red,
+                                    ),
+                                    title: Text(
+                                      'Delete',
+                                      style: TextStyle(color: Colors.red),
+                                    ),
                                     contentPadding: EdgeInsets.zero,
                                   ),
                                 ),
@@ -555,6 +590,560 @@ class _TrackerMetricScreenState extends ConsumerState<TrackerMetricScreen> {
         child: const Icon(Icons.add),
       ),
     );
+  }
+}
+
+enum TrackerChartType { line, bar }
+
+class _TrackerChartPanel extends StatelessWidget {
+  final TrackerChartType chartType;
+  final TrackerChartPeriod period;
+  final List<TrackerChartPoint> points;
+  final String? unit;
+  final int entryCount;
+  final DateTime startDate;
+  final DateTime endDate;
+  final String Function(double value) formatValue;
+  final String Function(DateTime date) formatDate;
+  final ValueChanged<TrackerChartType> onChartTypeChanged;
+  final ValueChanged<TrackerChartPeriod> onPeriodChanged;
+  final VoidCallback onPickStart;
+  final VoidCallback onPickEnd;
+
+  const _TrackerChartPanel({
+    required this.chartType,
+    required this.period,
+    required this.points,
+    required this.unit,
+    required this.entryCount,
+    required this.startDate,
+    required this.endDate,
+    required this.formatValue,
+    required this.formatDate,
+    required this.onChartTypeChanged,
+    required this.onPeriodChanged,
+    required this.onPickStart,
+    required this.onPickEnd,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final hasRangeValue = points.any((point) => point.value != 0);
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: theme.brightness == Brightness.dark
+            ? colorScheme.surfaceContainerHigh
+            : colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: colorScheme.outlineVariant.withValues(alpha: 0.6),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                SegmentedButton<TrackerChartType>(
+                  style: _compactSegmentedStyle(),
+                  segments: const [
+                    ButtonSegment(
+                      value: TrackerChartType.line,
+                      icon: Icon(Icons.show_chart, size: 18),
+                      label: Text('Line'),
+                    ),
+                    ButtonSegment(
+                      value: TrackerChartType.bar,
+                      icon: Icon(Icons.bar_chart, size: 18),
+                      label: Text('Bar'),
+                    ),
+                  ],
+                  selected: {chartType},
+                  onSelectionChanged: (selection) {
+                    onChartTypeChanged(selection.first);
+                  },
+                ),
+                const SizedBox(width: 8),
+                SegmentedButton<TrackerChartPeriod>(
+                  style: _compactSegmentedStyle(),
+                  segments: const [
+                    ButtonSegment(
+                      value: TrackerChartPeriod.daily,
+                      label: Text('Daily'),
+                    ),
+                    ButtonSegment(
+                      value: TrackerChartPeriod.weekly,
+                      label: Text('Weekly'),
+                    ),
+                    ButtonSegment(
+                      value: TrackerChartPeriod.monthly,
+                      label: Text('Monthly'),
+                    ),
+                    ButtonSegment(
+                      value: TrackerChartPeriod.yearly,
+                      label: Text('Yearly'),
+                    ),
+                  ],
+                  selected: {period},
+                  onSelectionChanged: (selection) {
+                    onPeriodChanged(selection.first);
+                  },
+                ),
+                const SizedBox(width: 8),
+                _ChartDateButton(
+                  label: 'Start',
+                  value: formatDate(startDate),
+                  onPressed: onPickStart,
+                ),
+                const SizedBox(width: 8),
+                _ChartDateButton(
+                  label: 'End',
+                  value: formatDate(endDate),
+                  onPressed: onPickEnd,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 18),
+          SizedBox(
+            height: 232,
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final minimumChartWidth =
+                    points.length *
+                    (chartType == TrackerChartType.bar ? 30 : 36);
+                final chartWidth = minimumChartWidth > constraints.maxWidth
+                    ? minimumChartWidth.toDouble()
+                    : constraints.maxWidth;
+
+                return Stack(
+                  children: [
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: SizedBox(
+                        width: chartWidth,
+                        child: Padding(
+                          padding: const EdgeInsets.only(top: 12, right: 4),
+                          child: chartType == TrackerChartType.line
+                              ? _TrackerLineChart(
+                                  points: points,
+                                  period: period,
+                                  unit: unit,
+                                  color: colorScheme.primary,
+                                  labelColor: colorScheme.onSurfaceVariant,
+                                  gridColor: colorScheme.outlineVariant
+                                      .withValues(alpha: 0.7),
+                                  tooltipColor: colorScheme.inverseSurface,
+                                  tooltipTextColor:
+                                      colorScheme.onInverseSurface,
+                                  formatValue: formatValue,
+                                  formatDate: formatDate,
+                                )
+                              : _TrackerBarChart(
+                                  points: points,
+                                  period: period,
+                                  color: colorScheme.primary,
+                                  labelColor: colorScheme.onSurfaceVariant,
+                                  gridColor: colorScheme.outlineVariant
+                                      .withValues(alpha: 0.7),
+                                  formatValue: formatValue,
+                                  formatDate: formatDate,
+                                ),
+                        ),
+                      ),
+                    ),
+                    if (!hasRangeValue)
+                      Center(
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: colorScheme.surface.withValues(alpha: 0.92),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 10,
+                            ),
+                            child: Text(
+                              'No entries in this range',
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '${_periodLabel(period)} totals · ${formatDate(startDate)} to ${formatDate(endDate)} ($entryCount ${entryCount == 1 ? 'entry' : 'entries'})',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  ButtonStyle _compactSegmentedStyle() {
+    return ButtonStyle(
+      visualDensity: VisualDensity.compact,
+      padding: WidgetStateProperty.all(
+        const EdgeInsets.symmetric(horizontal: 10),
+      ),
+      textStyle: WidgetStateProperty.all(const TextStyle(fontSize: 13)),
+    );
+  }
+
+  String _periodLabel(TrackerChartPeriod period) {
+    switch (period) {
+      case TrackerChartPeriod.daily:
+        return 'Daily';
+      case TrackerChartPeriod.weekly:
+        return 'Weekly';
+      case TrackerChartPeriod.monthly:
+        return 'Monthly';
+      case TrackerChartPeriod.yearly:
+        return 'Yearly';
+    }
+  }
+}
+
+class _ChartDateButton extends StatelessWidget {
+  final String label;
+  final String value;
+  final VoidCallback onPressed;
+
+  const _ChartDateButton({
+    required this.label,
+    required this.value,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    return OutlinedButton.icon(
+      onPressed: onPressed,
+      icon: const Icon(Icons.calendar_today_outlined, size: 16),
+      label: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            '$label: ',
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: colorScheme.onSurfaceVariant,
+            ),
+          ),
+          Text(value),
+        ],
+      ),
+      style: OutlinedButton.styleFrom(
+        visualDensity: VisualDensity.compact,
+        textStyle: const TextStyle(fontSize: 13),
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        minimumSize: const Size(0, 36),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      ),
+    );
+  }
+}
+
+class _TrackerLineChart extends StatelessWidget {
+  final List<TrackerChartPoint> points;
+  final TrackerChartPeriod period;
+  final String? unit;
+  final Color color;
+  final Color labelColor;
+  final Color gridColor;
+  final Color tooltipColor;
+  final Color tooltipTextColor;
+  final String Function(double value) formatValue;
+  final String Function(DateTime date) formatDate;
+
+  const _TrackerLineChart({
+    required this.points,
+    required this.period,
+    required this.unit,
+    required this.color,
+    required this.labelColor,
+    required this.gridColor,
+    required this.tooltipColor,
+    required this.tooltipTextColor,
+    required this.formatValue,
+    required this.formatDate,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final maxY = _chartMaxY(points);
+    final yInterval = _yAxisInterval(maxY);
+    final spots = [
+      for (var i = 0; i < points.length; i++)
+        FlSpot(i.toDouble(), points[i].value),
+    ];
+
+    return LineChart(
+      LineChartData(
+        minX: 0,
+        maxX: (points.length - 1).clamp(0, points.length).toDouble(),
+        minY: 0,
+        maxY: maxY,
+        gridData: FlGridData(
+          drawVerticalLine: false,
+          horizontalInterval: yInterval,
+          getDrawingHorizontalLine: (_) =>
+              FlLine(color: gridColor, strokeWidth: 1),
+        ),
+        borderData: FlBorderData(
+          show: true,
+          border: Border(
+            left: BorderSide(color: gridColor),
+            bottom: BorderSide(color: gridColor),
+          ),
+        ),
+        titlesData: _titlesData(
+          points: points,
+          period: period,
+          labelColor: labelColor,
+          maxY: maxY,
+          yInterval: yInterval,
+          formatDate: formatDate,
+        ),
+        lineTouchData: LineTouchData(
+          touchTooltipData: LineTouchTooltipData(
+            getTooltipColor: (_) => tooltipColor,
+            fitInsideHorizontally: true,
+            fitInsideVertically: true,
+            getTooltipItems: (spots) => spots.map((spot) {
+              final point = points[spot.x.round()];
+              return LineTooltipItem(
+                '${_pointLabel(point, period, formatDate)}\n${formatValue(point.value)}${unit != null ? ' $unit' : ''}',
+                TextStyle(color: tooltipTextColor, fontWeight: FontWeight.w600),
+              );
+            }).toList(),
+          ),
+        ),
+        lineBarsData: [
+          LineChartBarData(
+            spots: spots,
+            isCurved: false,
+            preventCurveOverShooting: true,
+            color: color,
+            barWidth: 3,
+            belowBarData: BarAreaData(
+              show: true,
+              color: color.withValues(alpha: 0.12),
+            ),
+            dotData: FlDotData(show: points.length <= 16),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TrackerBarChart extends StatelessWidget {
+  final List<TrackerChartPoint> points;
+  final TrackerChartPeriod period;
+  final Color color;
+  final Color labelColor;
+  final Color gridColor;
+  final String Function(double value) formatValue;
+  final String Function(DateTime date) formatDate;
+
+  const _TrackerBarChart({
+    required this.points,
+    required this.period,
+    required this.color,
+    required this.labelColor,
+    required this.gridColor,
+    required this.formatValue,
+    required this.formatDate,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final maxY = _chartMaxY(points);
+    final yInterval = _yAxisInterval(maxY);
+
+    return BarChart(
+      BarChartData(
+        minY: 0,
+        maxY: maxY,
+        alignment: BarChartAlignment.spaceBetween,
+        gridData: FlGridData(
+          drawVerticalLine: false,
+          horizontalInterval: yInterval,
+          getDrawingHorizontalLine: (_) =>
+              FlLine(color: gridColor, strokeWidth: 1),
+        ),
+        borderData: FlBorderData(
+          show: true,
+          border: Border(
+            left: BorderSide(color: gridColor),
+            bottom: BorderSide(color: gridColor),
+          ),
+        ),
+        titlesData: _titlesData(
+          points: points,
+          period: period,
+          labelColor: labelColor,
+          maxY: maxY,
+          yInterval: yInterval,
+          formatDate: formatDate,
+        ),
+        barTouchData: BarTouchData(
+          touchTooltipData: BarTouchTooltipData(
+            getTooltipColor: (_) => Colors.transparent,
+            tooltipPadding: EdgeInsets.zero,
+            tooltipMargin: 4,
+            fitInsideHorizontally: true,
+            fitInsideVertically: true,
+            getTooltipItem: (group, groupIndex, rod, rodIndex) {
+              final point = points[group.x];
+              return BarTooltipItem(
+                formatValue(point.value),
+                TextStyle(
+                  color: labelColor,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                ),
+              );
+            },
+          ),
+        ),
+        barGroups: [
+          for (var i = 0; i < points.length; i++)
+            BarChartGroupData(
+              x: i,
+              showingTooltipIndicators: points[i].value == 0 ? const [] : [0],
+              barRods: [
+                BarChartRodData(
+                  toY: points[i].value,
+                  width: points.length > 40 ? 5 : 10,
+                  color: color,
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(4),
+                  ),
+                ),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+FlTitlesData _titlesData({
+  required List<TrackerChartPoint> points,
+  required TrackerChartPeriod period,
+  required Color labelColor,
+  required double maxY,
+  required double yInterval,
+  required String Function(DateTime date) formatDate,
+}) {
+  final labelStyle = TextStyle(
+    color: labelColor,
+    fontSize: 11,
+    fontWeight: FontWeight.w500,
+  );
+
+  return FlTitlesData(
+    topTitles: const AxisTitles(),
+    rightTitles: const AxisTitles(),
+    leftTitles: AxisTitles(
+      sideTitles: SideTitles(
+        showTitles: true,
+        reservedSize: 48,
+        interval: yInterval,
+        getTitlesWidget: (value, meta) {
+          if (value == 0 || value > maxY || value != value.roundToDouble()) {
+            return const SizedBox.shrink();
+          }
+          return Text(value.round().toString(), style: labelStyle);
+        },
+      ),
+    ),
+    bottomTitles: AxisTitles(
+      sideTitles: SideTitles(
+        showTitles: true,
+        reservedSize: 62,
+        interval: 1,
+        getTitlesWidget: (value, meta) {
+          final index = value.round();
+          if (index < 0 || index >= points.length || value != index) {
+            return const SizedBox.shrink();
+          }
+          return SideTitleWidget(
+            meta: meta,
+            angle: -math.pi / 2,
+            space: 36,
+            child: Text(
+              _shortPointLabel(points[index], period, formatDate),
+              style: labelStyle,
+              textAlign: TextAlign.center,
+            ),
+          );
+        },
+      ),
+    ),
+  );
+}
+
+double _chartMaxY(List<TrackerChartPoint> points) {
+  final maxValue = points.fold<double>(
+    0,
+    (max, point) => point.value > max ? point.value : max,
+  );
+  if (maxValue <= 0) return 1;
+  final paddedMax = maxValue * 1.18;
+  return paddedMax.ceilToDouble();
+}
+
+double _yAxisInterval(double maxY) {
+  if (maxY <= 4) return 1;
+  return (maxY / 4).ceilToDouble();
+}
+
+String _pointLabel(
+  TrackerChartPoint point,
+  TrackerChartPeriod period,
+  String Function(DateTime date) formatDate,
+) {
+  if (period == TrackerChartPeriod.daily || point.start == point.end) {
+    return formatDate(point.start);
+  }
+  return '${formatDate(point.start)} - ${formatDate(point.end)}';
+}
+
+String _shortPointLabel(
+  TrackerChartPoint point,
+  TrackerChartPeriod period,
+  String Function(DateTime date) formatDate,
+) {
+  switch (period) {
+    case TrackerChartPeriod.daily:
+      return '${point.start.month}/${point.start.day}';
+    case TrackerChartPeriod.weekly:
+      return '${point.start.month}/${point.start.day}';
+    case TrackerChartPeriod.monthly:
+      return '${point.start.month}/${point.start.year % 100}';
+    case TrackerChartPeriod.yearly:
+      return point.start.year.toString();
   }
 }
 

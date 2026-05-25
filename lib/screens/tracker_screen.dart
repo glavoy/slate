@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/tracker_metric.dart';
+import '../providers/settings_providers.dart';
 import '../providers/tracker_providers.dart';
-import '../widgets/sparkline.dart';
+import '../utils/date_utils.dart' as du;
+import '../utils/tracker_overview_stats.dart';
 import 'tracker_metric_screen.dart';
 
 class TrackerScreen extends ConsumerWidget {
@@ -30,8 +32,7 @@ class TrackerScreen extends ConsumerWidget {
                   labelText: 'Name',
                   hintText: 'e.g. Weight, Steps',
                 ),
-                validator: (v) =>
-                    (v ?? '').trim().isEmpty ? 'Required' : null,
+                validator: (v) => (v ?? '').trim().isEmpty ? 'Required' : null,
               ),
               const SizedBox(height: 12),
               TextFormField(
@@ -62,7 +63,9 @@ class TrackerScreen extends ConsumerWidget {
     );
 
     if (saved == true) {
-      await ref.read(trackerMetricsProvider.notifier).create(
+      await ref
+          .read(trackerMetricsProvider.notifier)
+          .create(
             name: nameController.text.trim(),
             unit: unitController.text.trim().isEmpty
                 ? null
@@ -101,8 +104,11 @@ class TrackerScreen extends ConsumerWidget {
           return ListView.builder(
             padding: const EdgeInsets.symmetric(vertical: 8),
             itemCount: metrics.length,
-            itemBuilder: (_, i) =>
-                _MetricCard(metric: metrics[i], theme: theme, colorScheme: colorScheme),
+            itemBuilder: (_, i) => _MetricCard(
+              metric: metrics[i],
+              theme: theme,
+              colorScheme: colorScheme,
+            ),
           );
         },
       ),
@@ -131,6 +137,25 @@ class _MetricCard extends ConsumerWidget {
     return v.toStringAsFixed(2);
   }
 
+  String _formatStatValue(double value) {
+    final formatted = _formatValue(value);
+    return metric.unit == null ? formatted : '$formatted ${metric.unit}';
+  }
+
+  String _formatLastLogged(DateTime? date, DateFormatStyle dateStyle) {
+    if (date == null) return '-';
+
+    final local = date.toLocal();
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final loggedDate = DateTime(local.year, local.month, local.day);
+    final daysAgo = today.difference(loggedDate).inDays;
+
+    if (daysAgo == 0) return 'Today';
+    if (daysAgo == 1) return 'Yesterday';
+    return du.formatDateAs(local, dateStyle);
+  }
+
   Future<void> _editMetric(BuildContext context, WidgetRef ref) async {
     final nameController = TextEditingController(text: metric.name);
     final unitController = TextEditingController(text: metric.unit ?? '');
@@ -149,8 +174,7 @@ class _MetricCard extends ConsumerWidget {
                 controller: nameController,
                 autofocus: true,
                 decoration: const InputDecoration(labelText: 'Name'),
-                validator: (v) =>
-                    (v ?? '').trim().isEmpty ? 'Required' : null,
+                validator: (v) => (v ?? '').trim().isEmpty ? 'Required' : null,
               ),
               const SizedBox(height: 12),
               TextFormField(
@@ -184,7 +208,9 @@ class _MetricCard extends ConsumerWidget {
       final newUnit = unitController.text.trim().isEmpty
           ? null
           : unitController.text.trim();
-      await ref.read(trackerMetricsProvider.notifier).editMetric(
+      await ref
+          .read(trackerMetricsProvider.notifier)
+          .editMetric(
             metric.id,
             name: nameController.text.trim(),
             unit: newUnit,
@@ -196,6 +222,7 @@ class _MetricCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final asyncEntries = ref.watch(trackerEntriesProvider(metric.id));
+    final dateStyle = ref.watch(dateFormatNotifierProvider);
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
@@ -213,59 +240,182 @@ class _MetricCard extends ConsumerWidget {
           ),
           onLongPress: () => _editMetric(context, ref),
           child: Padding(
-            padding: const EdgeInsets.all(14),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        metric.name,
-                        style: theme.textTheme.titleMedium
-                            ?.copyWith(fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(height: 4),
-                      asyncEntries.when(
-                        loading: () => Text(
-                          '…',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: colorScheme.onSurface
-                                .withValues(alpha: 0.5),
-                          ),
-                        ),
-                        error: (_, _) => const SizedBox.shrink(),
-                        data: (entries) => Text(
-                          entries.isEmpty
-                              ? 'No entries'
-                              : '${_formatValue(entries.first.value)}${metric.unit != null ? ' ${metric.unit}' : ''} · ${entries.length} ${entries.length == 1 ? 'entry' : 'entries'}',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: colorScheme.onSurface
-                                .withValues(alpha: 0.65),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
+            padding: const EdgeInsets.all(16),
+            child: asyncEntries.when(
+              loading: () => _MetricCardContent(
+                metricName: metric.name,
+                stats: null,
+                dateStyle: dateStyle,
+                formatStatValue: _formatStatValue,
+                formatLastLogged: _formatLastLogged,
+                theme: theme,
+                colorScheme: colorScheme,
+              ),
+              error: (_, _) => _MetricCardContent(
+                metricName: metric.name,
+                stats: null,
+                dateStyle: dateStyle,
+                formatStatValue: _formatStatValue,
+                formatLastLogged: _formatLastLogged,
+                theme: theme,
+                colorScheme: colorScheme,
+              ),
+              data: (entries) => _MetricCardContent(
+                metricName: metric.name,
+                stats: buildTrackerOverviewStats(
+                  entries: entries,
+                  now: DateTime.now(),
                 ),
-                const SizedBox(width: 12),
-                SizedBox(
-                  width: 100,
-                  height: 36,
-                  child: asyncEntries.when(
-                    loading: () => const SizedBox.shrink(),
-                    error: (_, _) => const SizedBox.shrink(),
-                    data: (entries) => Sparkline(
-                      values:
-                          entries.reversed.map((e) => e.value).toList(),
-                      color: colorScheme.primary,
-                    ),
-                  ),
-                ),
-              ],
+                dateStyle: dateStyle,
+                formatStatValue: _formatStatValue,
+                formatLastLogged: _formatLastLogged,
+                theme: theme,
+                colorScheme: colorScheme,
+              ),
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _MetricCardContent extends StatelessWidget {
+  final String metricName;
+  final TrackerOverviewStats? stats;
+  final DateFormatStyle dateStyle;
+  final String Function(double value) formatStatValue;
+  final String Function(DateTime? date, DateFormatStyle dateStyle)
+  formatLastLogged;
+  final ThemeData theme;
+  final ColorScheme colorScheme;
+
+  const _MetricCardContent({
+    required this.metricName,
+    required this.stats,
+    required this.dateStyle,
+    required this.formatStatValue,
+    required this.formatLastLogged,
+    required this.theme,
+    required this.colorScheme,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final values = stats;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          metricName,
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 24,
+          runSpacing: 12,
+          children: [
+            _TrackerStatBlock(
+              label: 'Last logged',
+              value: values == null
+                  ? '...'
+                  : formatLastLogged(values.lastLoggedAt, dateStyle),
+              theme: theme,
+              colorScheme: colorScheme,
+            ),
+            _TrackerStatBlock(
+              label: 'Last 7 days',
+              value: values == null
+                  ? '...'
+                  : formatStatValue(values.lastSevenDaysTotal),
+              theme: theme,
+              colorScheme: colorScheme,
+            ),
+            _TrackerStatBlock(
+              label: _currentMonthLabel(),
+              value: values == null
+                  ? '...'
+                  : formatStatValue(values.currentMonthTotal),
+              theme: theme,
+              colorScheme: colorScheme,
+            ),
+            _TrackerStatBlock(
+              label: '30d avg',
+              value: values == null
+                  ? '...'
+                  : formatStatValue(values.thirtyDayAverage),
+              theme: theme,
+              colorScheme: colorScheme,
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  String _currentMonthLabel() {
+    final now = DateTime.now();
+    const months = [
+      'January',
+      'February',
+      'March',
+      'April',
+      'May',
+      'June',
+      'July',
+      'August',
+      'September',
+      'October',
+      'November',
+      'December',
+    ];
+    return '${months[now.month - 1]} ${now.year}';
+  }
+}
+
+class _TrackerStatBlock extends StatelessWidget {
+  final String label;
+  final String value;
+  final ThemeData theme;
+  final ColorScheme colorScheme;
+
+  const _TrackerStatBlock({
+    required this.label,
+    required this.value,
+    required this.theme,
+    required this.colorScheme,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 132,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: colorScheme.onSurface.withValues(alpha: 0.58),
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: colorScheme.onSurface.withValues(alpha: 0.86),
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
       ),
     );
   }
