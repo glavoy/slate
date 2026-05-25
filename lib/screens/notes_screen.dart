@@ -58,7 +58,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
         .where(
           (n) =>
               n.title.toLowerCase().contains(q) ||
-              n.content.toLowerCase().contains(q),
+              noteBodyPreview(n.content).toLowerCase().contains(q),
         )
         .toList();
   }
@@ -399,7 +399,7 @@ class _NoteListTile extends StatelessWidget {
   }
 
   String _preview(Note note) {
-    final raw = stripNoteMarkdown(note.content).trim();
+    final raw = noteBodyPreview(note.content).trim();
     if (raw.isEmpty) return 'No content';
     final line = raw.split('\n').first;
     return line.length > 80 ? '${line.substring(0, 80)}…' : line;

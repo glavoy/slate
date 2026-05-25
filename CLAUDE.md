@@ -39,6 +39,8 @@ Every `AsyncNotifier` subscribes to a `PostgresChanges` channel in `build()` and
 
 **Realtime writes (Simple List):** The scratchpad uses `state = AsyncValue.data(SimpleList.fromJson(payload.newRecord))` in the Realtime callback instead of `ref.invalidateSelf()`, to avoid a loading flash that breaks the typing experience. All other providers use `ref.invalidateSelf()`.
 
+**Notes editor:** Uses `flutter_quill` for rich-text editing. The note body is stored in the `notes.content` TEXT column as a Quill Delta encoded with `jsonEncode(document.toDelta().toJson())`. The title is a separate plain `TextField` above the editor (so it never picks up formatting). For previews / search, use the `noteBodyPreview(String content)` helper in `lib/widgets/note_editor_pane.dart` — it extracts plain text from a Delta and falls back to the raw string for legacy pre-Quill notes.
+
 **Multiple FABs:** Because `IndexedStack` keeps all screens alive, every `FloatingActionButton` must have a unique `heroTag` (`'fab_tasks'`, `'fab_notes'`, `'fab_tracker'`, `'fab_tracker_metric'`).
 
 **Task display:** Tasks are grouped by `dueDate` into `DateGroupCard` widgets inside `TaskSection`. The `TaskCard` widget is a plain row (no card chrome of its own) that sits inside a date group. Section headers use `SliverPersistentHeaderDelegate`; `shouldRebuild` must compare `theme.colorScheme` or theme changes won't reflect until navigation.
