@@ -281,13 +281,18 @@ class _TrackerMetricScreenState extends ConsumerState<TrackerMetricScreen> {
     );
 
     if (saved == true) {
-      final recordedAt = DateTime(
-        selectedDate.year,
-        selectedDate.month,
-        selectedDate.day,
-        selectedTime?.hour ?? 0,
-        selectedTime?.minute ?? 0,
-      );
+      // For date-only entries store UTC midnight so that UTC date == the date
+      // the user picked regardless of device timezone.  For entries with an
+      // explicit time, convert the local datetime to UTC normally.
+      final recordedAt = selectedTime == null
+          ? DateTime.utc(selectedDate.year, selectedDate.month, selectedDate.day)
+          : DateTime(
+              selectedDate.year,
+              selectedDate.month,
+              selectedDate.day,
+              selectedTime!.hour,
+              selectedTime!.minute,
+            );
       final value = double.parse(valueController.text);
       final note = noteController.text.trim().isEmpty
           ? null

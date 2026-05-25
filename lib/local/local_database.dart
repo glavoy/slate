@@ -148,6 +148,55 @@ class LocalDatabase {
     final version =
         db.select('PRAGMA user_version').first['user_version'] as int;
     if (version < 1) _migrateToV1();
+    if (version < 2) _migrateToV2();
+  }
+
+  void _migrateToV2() {
+    // Fix tracker_entries that were stored as "local-midnight UTC" rather than
+    // true UTC midnight.  This happens when the device is in a UTC+ timezone:
+    // DateTime(year, month, day).toUtc() produces the previous UTC day.
+    //
+    // Strategy: for every entry whose time component is already midnight in
+    // the device's current timezone (i.e. it was a date-only entry), advance
+    // or rewind it to the UTC midnight of that local date.  Entries with an
+    // explicit time and UTC-midnight Supabase entries are left untouched.
+    final offsetSeconds = DateTime.now().timeZoneOffset.inSeconds;
+    if (offsetSeconds == 0) {
+      db.execute('PRAGMA user_version = 2;');
+      return;
+    }
+    final sign = offsetSeconds >= 0 ? '+' : '';
+    final now = nowIso();
+    db.execute('BEGIN IMMEDIATE;');
+    try {
+      // Migrate local-midnight entries to true UTC midnight.
+      // OR IGNORE skips rows where a UTC midnight entry already exists.
+      db.execute('''
+        UPDATE OR IGNORE tracker_entries
+        SET recorded_at     = strftime('%Y-%m-%dT00:00:00.000Z',
+                                datetime(recorded_at,
+                                         '$sign$offsetSeconds seconds')),
+            sync_status     = 'pending',
+            updated_at      = ?,
+            client_modified_at = ?
+        WHERE time(recorded_at) != '00:00:00'
+          AND time(datetime(recorded_at,
+                            '$sign$offsetSeconds seconds')) = '00:00:00'
+      ''', [now, now]);
+      // Delete any remaining local-midnight entries that couldn't be migrated
+      // because a UTC midnight entry already existed for that (metric_id, user_id, date).
+      db.execute('''
+        DELETE FROM tracker_entries
+        WHERE time(recorded_at) != '00:00:00'
+          AND time(datetime(recorded_at,
+                            '$sign$offsetSeconds seconds')) = '00:00:00'
+      ''');
+      db.execute('PRAGMA user_version = 2;');
+      db.execute('COMMIT;');
+    } catch (_) {
+      db.execute('ROLLBACK;');
+      rethrow;
+    }
   }
 
   void _migrateToV1() {
