@@ -26,7 +26,9 @@ String noteBodyPreview(String content) {
       }
       return buf.toString();
     }
-  } catch (_) {/* fall through to legacy */}
+  } catch (_) {
+    /* fall through to legacy */
+  }
   return content;
 }
 
@@ -35,7 +37,9 @@ Document _documentFromContent(String content) {
   try {
     final decoded = jsonDecode(content);
     if (decoded is List) return Document.fromJson(decoded);
-  } catch (_) {/* legacy plain text */}
+  } catch (_) {
+    /* legacy plain text */
+  }
   // Legacy notes seed as a single plain-text insert so they at least show up.
   return Document()..insert(0, content);
 }
@@ -149,8 +153,7 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
       (_titleController.text != _lastSavedTitle ||
           _serializedContent != _lastSavedContent);
 
-  bool get _hasFocus =>
-      _editorFocusNode.hasFocus || _titleFocusNode.hasFocus;
+  bool get _hasFocus => _editorFocusNode.hasFocus || _titleFocusNode.hasFocus;
 
   void _onTitleChanged() => _scheduleSave();
   void _onQuillChanged() {
@@ -268,8 +271,8 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
     }
 
     final titleMatches = note.title == _titleController.text;
-    final contentMatches = note.content == _lastSavedContent ||
-        note.content == _serializedContent;
+    final contentMatches =
+        note.content == _lastSavedContent || note.content == _serializedContent;
     if (titleMatches && contentMatches) {
       _lastSavedTitle = note.title;
       _lastSavedContent = _serializedContent;
@@ -363,11 +366,27 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
                       const VerticalSpacing(0, 0),
                       null,
                     ),
+                    h2: DefaultTextBlockStyle(
+                      (theme.textTheme.bodyLarge ??
+                              const TextStyle(fontSize: 16))
+                          .copyWith(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w600,
+                            height: 1.25,
+                          ),
+                      const HorizontalSpacing(0, 0),
+                      const VerticalSpacing(6, 0),
+                      const VerticalSpacing(0, 0),
+                      null,
+                    ),
                   ),
                 ),
               ),
             ),
-            _NoteFormatToolbar(controller: _quill),
+            _NoteFormatToolbar(
+              controller: _quill,
+              editorFocusNode: _editorFocusNode,
+            ),
             _NoteSyncFooter(
               note: note,
               hasUnsavedEditorChanges: _hasUnsavedEditorChanges,
@@ -381,30 +400,32 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
 
 // ── Toolbar ──────────────────────────────────────────────────────────────────
 
-enum _LineStyle { body, heading, subheading }
-
 class _NoteFormatToolbar extends StatelessWidget {
-  const _NoteFormatToolbar({required this.controller});
+  const _NoteFormatToolbar({
+    required this.controller,
+    required this.editorFocusNode,
+  });
 
   final QuillController controller;
+  final FocusNode editorFocusNode;
+
+  /// Run a format action and immediately hand focus back to the editor so the
+  /// caret stays visible and the user can keep typing. We re-request focus
+  /// synchronously AND after the current frame to win against any focus changes
+  /// Flutter dispatches during the button's tap pipeline (on mobile this also
+  /// keeps the soft keyboard up).
+  void _withFocus(VoidCallback action) {
+    action();
+    editorFocusNode.requestFocus();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (editorFocusNode.canRequestFocus) editorFocusNode.requestFocus();
+    });
+  }
 
   void _toggleInline(Attribute attr) {
     final style = controller.getSelectionStyle();
     final isActive = style.attributes.containsKey(attr.key);
-    controller.formatSelection(
-      isActive ? Attribute.clone(attr, null) : attr,
-    );
-  }
-
-  void _setLineStyle(_LineStyle style) {
-    switch (style) {
-      case _LineStyle.heading:
-        controller.formatSelection(Attribute.h1);
-      case _LineStyle.subheading:
-        controller.formatSelection(Attribute.h2);
-      case _LineStyle.body:
-        controller.formatSelection(Attribute.header);
-    }
+    controller.formatSelection(isActive ? Attribute.clone(attr, null) : attr);
   }
 
   void _toggleBlock(Attribute attr) {
@@ -448,11 +469,7 @@ class _NoteFormatToolbar extends StatelessWidget {
                 attrs[Attribute.list.key]?.value == Attribute.unchecked.value ||
                 attrs[Attribute.list.key]?.value == Attribute.checked.value;
             final headerLevel = attrs[Attribute.header.key]?.value;
-            final lineStyle = headerLevel == 1
-                ? _LineStyle.heading
-                : headerLevel == 2
-                    ? _LineStyle.subheading
-                    : _LineStyle.body;
+            final isLarge = headerLevel == 1 || headerLevel == 2;
 
             return SingleChildScrollView(
               scrollDirection: Axis.horizontal,
@@ -463,14 +480,18 @@ class _NoteFormatToolbar extends StatelessWidget {
                     tooltip: 'Bold',
                     active: isBold,
                     textStyle: const TextStyle(fontWeight: FontWeight.bold),
-                    onPressed: () => _toggleInline(Attribute.bold),
+                    onPressed: () => _withFocus(
+                      () => _toggleInline(Attribute.bold),
+                    ),
                   ),
                   _ToggleTextButton(
                     label: 'I',
                     tooltip: 'Italic',
                     active: isItalic,
                     textStyle: const TextStyle(fontStyle: FontStyle.italic),
-                    onPressed: () => _toggleInline(Attribute.italic),
+                    onPressed: () => _withFocus(
+                      () => _toggleInline(Attribute.italic),
+                    ),
                   ),
                   _ToggleTextButton(
                     label: 'U',
@@ -479,53 +500,51 @@ class _NoteFormatToolbar extends StatelessWidget {
                     textStyle: const TextStyle(
                       decoration: TextDecoration.underline,
                     ),
-                    onPressed: () => _toggleInline(Attribute.underline),
+                    onPressed: () => _withFocus(
+                      () => _toggleInline(Attribute.underline),
+                    ),
                   ),
                   const SizedBox(width: 8),
-                  SegmentedButton<_LineStyle>(
-                    style: ButtonStyle(
-                      visualDensity: VisualDensity.compact,
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      textStyle: WidgetStateProperty.all(
-                        theme.textTheme.bodySmall,
-                      ),
+                  _ToggleTextButton(
+                    label: 'A−',
+                    tooltip: 'Normal text',
+                    active: !isLarge,
+                    onPressed: () => _withFocus(
+                      () => controller.formatSelection(Attribute.header),
                     ),
-                    showSelectedIcon: false,
-                    segments: const [
-                      ButtonSegment(
-                        value: _LineStyle.body,
-                        label: Text('Body'),
-                      ),
-                      ButtonSegment(
-                        value: _LineStyle.subheading,
-                        label: Text('Subheading'),
-                      ),
-                      ButtonSegment(
-                        value: _LineStyle.heading,
-                        label: Text('Heading'),
-                      ),
-                    ],
-                    selected: {lineStyle},
-                    onSelectionChanged: (set) => _setLineStyle(set.first),
+                  ),
+                  _ToggleTextButton(
+                    label: 'A+',
+                    tooltip: 'Large text',
+                    active: isLarge,
+                    onPressed: () => _withFocus(
+                      () => controller.formatSelection(Attribute.h2),
+                    ),
                   ),
                   const SizedBox(width: 8),
                   _ToggleIconButton(
                     icon: Icons.format_list_bulleted,
                     tooltip: 'Bullet list',
                     active: isBullet,
-                    onPressed: () => _toggleBlock(Attribute.ul),
+                    onPressed: () => _withFocus(
+                      () => _toggleBlock(Attribute.ul),
+                    ),
                   ),
                   _ToggleIconButton(
                     icon: Icons.format_list_numbered,
                     tooltip: 'Numbered list',
                     active: isNumbered,
-                    onPressed: () => _toggleBlock(Attribute.ol),
+                    onPressed: () => _withFocus(
+                      () => _toggleBlock(Attribute.ol),
+                    ),
                   ),
                   _ToggleIconButton(
                     icon: Icons.check_box_outlined,
                     tooltip: 'Checkbox',
                     active: isCheckbox,
-                    onPressed: () => _toggleBlock(Attribute.unchecked),
+                    onPressed: () => _withFocus(
+                      () => _toggleBlock(Attribute.unchecked),
+                    ),
                   ),
                 ],
               ),
@@ -641,8 +660,18 @@ class _NoteSyncFooter extends StatelessWidget {
 
   String _formatDateTime(DateTime dt) {
     const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ];
     final hour12 = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
     final minute = dt.minute.toString().padLeft(2, '0');
