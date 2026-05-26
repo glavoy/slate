@@ -878,10 +878,6 @@ class _TrackerChartPanel extends StatelessWidget {
                                               gridColor: colorScheme
                                                   .outlineVariant
                                                   .withValues(alpha: 0.7),
-                                              tooltipColor:
-                                                  colorScheme.inverseSurface,
-                                              tooltipTextColor:
-                                                  colorScheme.onInverseSurface,
                                               formatValue: formatValue,
                                               formatDate: formatDate,
                                             ),
@@ -1098,8 +1094,6 @@ class _TrackerBarChart extends StatelessWidget {
   final Color color;
   final Color labelColor;
   final Color gridColor;
-  final Color tooltipColor;
-  final Color tooltipTextColor;
   final String Function(double value) formatValue;
   final String Function(DateTime date) formatDate;
 
@@ -1109,8 +1103,6 @@ class _TrackerBarChart extends StatelessWidget {
     required this.color,
     required this.labelColor,
     required this.gridColor,
-    required this.tooltipColor,
-    required this.tooltipTextColor,
     required this.formatValue,
     required this.formatDate,
   });
@@ -1147,13 +1139,16 @@ class _TrackerBarChart extends StatelessWidget {
           maxY: maxY,
           yInterval: yInterval,
           formatDate: formatDate,
-          topLabelGetter: showTopLabels
-              ? (i) => points[i].value > 0 ? formatValue(points[i].value) : ''
-              : null,
+          topLabelGetter: null,
         ),
         barTouchData: BarTouchData(
           touchTooltipData: BarTouchTooltipData(
-            getTooltipColor: (_) => tooltipColor,
+            getTooltipColor: (_) => Colors.transparent,
+            tooltipPadding: const EdgeInsets.symmetric(
+              horizontal: 2,
+              vertical: 0,
+            ),
+            tooltipMargin: 2,
             fitInsideHorizontally: true,
             fitInsideVertically: true,
             getTooltipItem: (group, groupIndex, rod, rodIndex) {
@@ -1161,10 +1156,10 @@ class _TrackerBarChart extends StatelessWidget {
               final point = points[group.x];
               if (point.value <= 0) return null;
               return BarTooltipItem(
-                '${_shortPointLabel(point, period, formatDate)}\n${formatValue(point.value)}',
+                formatValue(point.value),
                 TextStyle(
-                  color: tooltipTextColor,
-                  fontSize: 12,
+                  color: labelColor,
+                  fontSize: 10,
                   fontWeight: FontWeight.w600,
                 ),
               );
@@ -1175,7 +1170,8 @@ class _TrackerBarChart extends StatelessWidget {
           for (var i = 0; i < points.length; i++)
             BarChartGroupData(
               x: i,
-              showingTooltipIndicators: const [],
+              showingTooltipIndicators:
+                  showTopLabels && points[i].value > 0 ? const [0] : const [],
               barRods: [
                 BarChartRodData(
                   toY: points[i].value,
