@@ -50,7 +50,7 @@ class NoteRepository {
       ''',
       [id, _client.auth.currentUser!.id, title, content, now, now, now],
     );
-    SyncService.instance.syncSoon();
+    SyncService.instance.schedulePush();
     return _noteFromRow(
       _local.selectOne('SELECT * FROM notes WHERE id = ?', [id])!,
     );
@@ -74,7 +74,7 @@ class NoteRepository {
       SET ${fields.join(', ')}, sync_status = 'pending'
       WHERE id = ?
       ''', values);
-    SyncService.instance.syncSoon();
+    SyncService.instance.schedulePush();
   }
 
   Future<void> setPin(String id, {required bool pinned}) async {
@@ -90,7 +90,7 @@ class NoteRepository {
       ''',
       [boolToSql(pinned), now, now, id],
     );
-    SyncService.instance.syncSoon();
+    SyncService.instance.schedulePush();
   }
 
   Future<void> softDelete(String id) async {
@@ -106,7 +106,7 @@ class NoteRepository {
       ''',
       [now, now, now, id],
     );
-    SyncService.instance.syncSoon();
+    SyncService.instance.schedulePush();
   }
 
   Future<void> restore(String id) async {
@@ -122,7 +122,7 @@ class NoteRepository {
       ''',
       [now, now, id],
     );
-    SyncService.instance.syncSoon();
+    SyncService.instance.schedulePush();
   }
 
   Future<void> permanentlyDelete(String id) async {
@@ -139,7 +139,7 @@ class NoteRepository {
       ''',
       [now, now, now, id],
     );
-    SyncService.instance.syncSoon();
+    SyncService.instance.schedulePush();
   }
 
   Note _noteFromRow(Map<String, Object?> row) {

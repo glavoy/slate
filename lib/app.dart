@@ -29,8 +29,19 @@ class _SlateAppState extends ConsumerState<SlateApp>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      SyncService.instance.syncSoonAfterResume();
+    switch (state) {
+      case AppLifecycleState.resumed:
+        // Foreground: re-subscribe realtime, restart the safety timer, and
+        // reconcile with the other device.
+        SyncService.instance.syncSoonAfterResume();
+      case AppLifecycleState.paused:
+        // Background: flush pending writes, then drop the realtime socket and
+        // foreground timer so a backgrounded app holds no open connection.
+        SyncService.instance.pause();
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.detached:
+        break;
     }
   }
 

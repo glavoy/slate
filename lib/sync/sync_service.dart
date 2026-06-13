@@ -6,6 +6,20 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../local/local_database.dart';
 
+/// Bidirectional sync between the local SQLite database and Supabase.
+///
+/// Design (see the sync rework plan):
+///  * Writes are local-first. Repositories mark rows `pending` and call
+///    [schedulePush], which coalesces a burst of edits into a single push.
+///  * A full reconcile (push + one pull) runs on app launch, resume, and
+///    connectivity regained — the moments a device is most likely to be a step
+///    behind the other one. There is no constant short-interval polling.
+///  * The pull cursor is a per-table high-water mark derived from the maximum
+///    server `updated_at` actually seen, not the device's wall clock. Combined
+///    with the server-side `set_updated_at` trigger this is immune to clock
+///    skew between devices, which previously caused changes to never sync.
+///  * Realtime is an acceleration path that only runs while the app is
+///    foregrounded; [pause]/[resume] tear it down and bring it back.
 class SyncService {
   SyncService._();
 
@@ -16,15 +30,26 @@ class SyncService {
   StreamSubscription<dynamic>? _connectivitySubscription;
   RealtimeChannel? _realtimeChannel;
   Timer? _periodicSyncTimer;
+  Timer? _pushDebounce;
   final _changes = StreamController<void>.broadcast();
-  bool _syncing = false;
-  bool _syncRequested = false;
+
+  bool _busy = false;
+  bool _rerun = false;
+  bool _rerunPull = false;
   DateTime? _syncStartedAt;
 
-  static const periodicSyncInterval = Duration(seconds: 60);
+  /// Foreground-only safety net. Realtime + foreground/resync cover the common
+  /// cases; this is just a backstop, so it can be infrequent.
+  static const periodicSyncInterval = Duration(minutes: 5);
   static const syncTimeout = Duration(seconds: 25);
   static const realtimeReconnectTimeout = Duration(seconds: 5);
+  static const pushDebounceDelay = Duration(seconds: 2);
   static const _pullPageSize = 1000;
+
+  /// Re-pull this far behind the newest row we have seen. Cheap insurance against
+  /// a row committed on another device mid-pagination; applies are idempotent so
+  /// the small overlap is harmless.
+  static const _hwmOverlap = Duration(seconds: 2);
 
   static const _tables = <_SyncTable>[
     _SyncTable('tasks', 'id'),
@@ -53,79 +78,121 @@ class SyncService {
     _connectivitySubscription ??= Connectivity().onConnectivityChanged.listen(
       (_) => syncSoon(),
     );
-    _periodicSyncTimer ??= Timer.periodic(
-      periodicSyncInterval,
-      (_) => syncSoon(),
-    );
+    _startPeriodicTimer();
     _subscribeToRealtime(client);
+    // Reconcile once on launch so the device catches up with the other one.
+    unawaited(syncNow(force: true));
   }
 
   Stream<void> get changes => _changes.stream;
 
-  Future<void> syncAfterResume() async {
+  // ── Lifecycle ──────────────────────────────────────────────────────────────
+
+  /// Call when the app returns to the foreground.
+  Future<void> resume() async {
+    final client = _client;
+    if (client == null) return;
+    _startPeriodicTimer();
     await _reconnectRealtime();
     await syncNow(force: true);
   }
 
-  void syncSoonAfterResume() {
-    unawaited(syncAfterResume());
+  /// Call when the app is backgrounded. Flushes pending writes, then releases
+  /// the realtime socket and the foreground timer so a backgrounded app holds no
+  /// open connection.
+  Future<void> pause() async {
+    _periodicSyncTimer?.cancel();
+    _periodicSyncTimer = null;
+    _pushDebounce?.cancel();
+    // Best-effort flush of anything still pending before we go quiet.
+    await _execute(pull: false);
+    final client = _client;
+    final channel = _realtimeChannel;
+    _realtimeChannel = null;
+    if (client != null && channel != null) {
+      try {
+        await client.removeChannel(channel).timeout(realtimeReconnectTimeout);
+      } catch (error, stackTrace) {
+        _logSyncError('realtime pause', error, stackTrace);
+      }
+    }
   }
 
+  // Back-compat entry points used by the app lifecycle observer.
+  Future<void> syncAfterResume() => resume();
+  void syncSoonAfterResume() => unawaited(resume());
+
+  // ── Public triggers ──────────────────────────────────────────────────────────
+
+  /// Coalesced, push-only sync. Repositories call this after a local write so a
+  /// burst of edits results in a single push pass and no read traffic.
+  void schedulePush() {
+    _pushDebounce?.cancel();
+    _pushDebounce = Timer(pushDebounceDelay, () {
+      unawaited(_execute(pull: false));
+    });
+  }
+
+  /// Full reconcile: push pending local rows, then pull remote changes once.
   Future<void> syncNow({bool force = false}) async {
+    if (_busy && force && _syncLooksStale()) {
+      // An earlier sync is wedged past the timeout; let this one take over.
+      _busy = false;
+    }
+    await _execute(pull: true);
+  }
+
+  /// Full reconcile, fire-and-forget.
+  void syncSoon() => unawaited(syncNow());
+
+  // ── Core runner ──────────────────────────────────────────────────────────────
+
+  Future<void> _execute({required bool pull}) async {
     final client = _client;
     final local = _local;
     final user = client?.auth.currentUser;
     if (client == null || local == null || user == null) return;
-    if (_syncing) {
-      if (!force || !_syncLooksStale()) {
-        _syncRequested = true;
-        return;
-      }
-      _logSyncMessage('forcing sync after stale in-flight sync');
-      _syncing = false;
+
+    if (_busy) {
+      _rerun = true;
+      _rerunPull = _rerunPull || pull;
+      return;
     }
 
-    await _runSync(client, local, user.id).timeout(
-      syncTimeout,
-      onTimeout: () {
-        _logSyncMessage('sync timed out');
-        _syncing = false;
-        _syncStartedAt = null;
-      },
-    );
+    _busy = true;
+    _syncStartedAt = DateTime.now();
+    try {
+      await _run(client, local, user.id, pull: pull).timeout(
+        syncTimeout,
+        onTimeout: () => _logSyncMessage('sync timed out'),
+      );
+    } catch (error, stackTrace) {
+      // The app stays local-first; a failed attempt is retried on the next
+      // write, resume, or connectivity change.
+      _logSyncError('sync', error, stackTrace);
+    } finally {
+      _busy = false;
+      _syncStartedAt = null;
+      if (_rerun) {
+        final nextPull = _rerunPull;
+        _rerun = false;
+        _rerunPull = false;
+        unawaited(_execute(pull: nextPull));
+      }
+    }
   }
 
-  Future<void> _runSync(
+  Future<void> _run(
     SupabaseClient client,
     LocalDatabase local,
-    String userId,
-  ) async {
-    _syncing = true;
-    _syncStartedAt = DateTime.now();
-    final previousSyncAt = local.getMeta('last_sync_at');
-    final syncStartedAt = nowIso();
-    try {
-      await _pullRemote(client, local, userId, since: previousSyncAt);
-      await _pushPending(client, local, userId);
-      await _pullRemote(client, local, userId, since: previousSyncAt);
-      local.setMeta('last_sync_at', syncStartedAt);
-      _changes.add(null);
-    } catch (error, stackTrace) {
-      // The app remains local-first. Failed sync attempts are retried on the
-      // next app start, connectivity change, or local write.
-      _logSyncError('syncNow', error, stackTrace);
-    } finally {
-      _syncing = false;
-      _syncStartedAt = null;
-      if (_syncRequested) {
-        _syncRequested = false;
-        unawaited(syncNow());
-      }
+    String userId, {
+    required bool pull,
+  }) async {
+    await _pushPending(client, local, userId);
+    if (pull) {
+      await _pullRemote(client, local, userId);
     }
-  }
-
-  void syncSoon() {
-    unawaited(syncNow());
+    _changes.add(null);
   }
 
   bool _syncLooksStale() {
@@ -133,6 +200,15 @@ class SyncService {
     if (startedAt == null) return true;
     return DateTime.now().difference(startedAt) > syncTimeout;
   }
+
+  void _startPeriodicTimer() {
+    _periodicSyncTimer ??= Timer.periodic(
+      periodicSyncInterval,
+      (_) => syncSoon(),
+    );
+  }
+
+  // ── Realtime ─────────────────────────────────────────────────────────────────
 
   void _subscribeToRealtime(SupabaseClient client) {
     if (_realtimeChannel != null) return;
@@ -194,14 +270,16 @@ class SyncService {
           if (changed) _changes.add(null);
         }
       }
+      // A realtime arrival is a good moment to flush any local pending writes.
+      schedulePush();
     } catch (error, stackTrace) {
-      // Fall through to a normal sync; realtime payload handling is an
-      // acceleration path, not the authoritative merge path.
+      // Realtime is only an acceleration path; fall back to a full reconcile.
       _logSyncError('realtime ${table.name}', error, stackTrace);
-    } finally {
       syncSoon();
     }
   }
+
+  // ── Push ─────────────────────────────────────────────────────────────────────
 
   Future<void> _pushPending(
     SupabaseClient client,
@@ -276,9 +354,10 @@ class SyncService {
     final key = row[table.keyColumn];
     final timestamp = row['client_modified_at'] ?? syncTime;
     try {
+      // updated_at is stamped by the server trigger; we only set the tombstone.
       await client
           .from(table.name)
-          .update({'sync_deleted_at': timestamp, 'updated_at': timestamp})
+          .update({'sync_deleted_at': timestamp})
           .eq(table.keyColumn, key!);
     } catch (_) {
       await client.from(table.name).delete().eq(table.keyColumn, key!);
@@ -328,22 +407,27 @@ class SyncService {
     }
   }
 
+  // ── Pull ─────────────────────────────────────────────────────────────────────
+
   Future<void> _pullRemote(
     SupabaseClient client,
     LocalDatabase local,
-    String userId, {
-    String? since,
-  }) async {
+    String userId,
+  ) async {
     final syncTime = nowIso();
     for (final table in _tables) {
+      final hwmKey = 'pull_hwm_${table.name}';
+      final since = local.getMeta(hwmKey);
+      DateTime? maxSeen;
       var from = 0;
+      var completed = false;
 
       while (true) {
         try {
-          dynamic query = client
-              .from(table.name)
-              .select()
-              .eq('user_id', userId);
+          dynamic query = client.from(table.name).select().eq(
+            'user_id',
+            userId,
+          );
           if (since != null) {
             query = query.gte('updated_at', since);
           }
@@ -354,17 +438,44 @@ class SyncService {
           final rows = (response as List).cast<Map<String, dynamic>>();
           for (final row in rows) {
             _applyRemoteRow(local, table, row, userId, syncTime);
+            final updatedAt = _parseTimestamp(row['updated_at']);
+            if (updatedAt != null &&
+                (maxSeen == null || updatedAt.isAfter(maxSeen))) {
+              maxSeen = updatedAt;
+            }
           }
 
-          if (rows.length < _pullPageSize) break;
+          if (rows.length < _pullPageSize) {
+            completed = true;
+            break;
+          }
           from += _pullPageSize;
         } catch (error, stackTrace) {
-          // Continue pulling other tables even if one table is unavailable.
+          // Continue pulling other tables even if one table is unavailable. Do
+          // not advance the high-water mark for a table that failed to pull.
           _logSyncError('pull ${table.name}', error, stackTrace);
           break;
         }
       }
+
+      if (completed) {
+        final next = advanceHighWaterMark(since, maxSeen);
+        if (next != null) local.setMeta(hwmKey, next);
+      }
     }
+  }
+
+  /// New cursor = newest row seen, rewound by [_hwmOverlap], but never earlier
+  /// than the previous cursor. Returns null when there is nothing to advance to.
+  @visibleForTesting
+  static String? advanceHighWaterMark(String? current, DateTime? maxSeen) {
+    if (maxSeen == null) return null;
+    final candidate = maxSeen.subtract(_hwmOverlap);
+    final previous = _parseTimestamp(current);
+    final next = (previous != null && previous.isAfter(candidate))
+        ? previous
+        : candidate;
+    return next.toUtc().toIso8601String();
   }
 
   bool _applyRemoteRow(
@@ -379,13 +490,8 @@ class SyncService {
     if (row['user_id'] != null && row['user_id'] != userId) return false;
 
     final existing = _selectExistingLocal(local, table, row);
-    if (existing != null && existing['sync_status'] == 'pending') {
-      if (!remoteWinsPendingLocal(
-        localClientModifiedAt: existing['client_modified_at'],
-        remoteRow: row,
-      )) {
-        return false;
-      }
+    if (existing != null && !_remoteShouldApply(existing, row)) {
+      return false;
     }
 
     if (row['sync_deleted_at'] != null) {
@@ -414,6 +520,25 @@ class SyncService {
 
     _upsertLocalRemoteRow(local, table.name, row, userId, syncTime);
     return true;
+  }
+
+  /// Whether an incoming remote row should overwrite the existing local one.
+  ///
+  /// For a `pending` local row we compare against its `client_modified_at` (the
+  /// unsynced edit time) so a fresh local edit is not lost. For a `synced` local
+  /// row we compare against its stored server `updated_at`, so a stale or
+  /// out-of-order remote echo can never roll the row back to older content.
+  bool _remoteShouldApply(
+    Map<String, Object?> existing,
+    Map<String, dynamic> row,
+  ) {
+    final localTime = existing['sync_status'] == 'pending'
+        ? existing['client_modified_at']
+        : existing['updated_at'];
+    return remoteWinsPendingLocal(
+      localClientModifiedAt: localTime,
+      remoteRow: row,
+    );
   }
 
   Map<String, Object?>? _selectExistingLocal(
@@ -458,11 +583,14 @@ class SyncService {
   }
 
   Map<String, dynamic> _remotePayload(String table, Map<String, Object?> row) {
+    // Local-only sync bookkeeping never leaves the device. updated_at is owned
+    // by the server trigger, so we never send it either.
     final excluded = {
       'sync_status',
       'last_synced_at',
       'client_modified_at',
       'pending_delete',
+      'updated_at',
     };
     final payload = <String, dynamic>{};
     for (final entry in row.entries) {
@@ -532,7 +660,7 @@ class SyncService {
     return normalized;
   }
 
-Set<String> _boolColumns(String table) => switch (table) {
+  Set<String> _boolColumns(String table) => switch (table) {
     'tasks' => {'is_done'},
     'notes' => {'pinned'},
     _ => const <String>{},

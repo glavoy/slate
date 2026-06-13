@@ -120,6 +120,12 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
     _quill.addListener(_onQuillChanged);
     _editorFocusNode.addListener(_handleFocusChanged);
     _titleFocusNode.addListener(_handleFocusChanged);
+    // Capture a repository-backed save closure once, up front, so the dispose
+    // flush can always persist the final edit even when the widget tree (and
+    // its providers) are being torn down.
+    final client = ref.read(supabaseClientProvider);
+    _saveWithoutProviderRefresh = (id, {String? title, String? content}) =>
+        NoteRepository(client).update(id, title: title, content: content);
     if (widget.controller != null) {
       _controllerGeneration = widget.controller!._register(
         focusTitle: _focusTitle,
@@ -304,16 +310,6 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (e, _) => Center(child: Text('Error: $e')),
       data: (notes) {
-        try {
-          final client = ref.read(supabaseClientProvider);
-          _saveWithoutProviderRefresh =
-              (id, {String? title, String? content}) => NoteRepository(
-                client,
-              ).update(id, title: title, content: content);
-        } catch (_) {
-          _saveWithoutProviderRefresh = null;
-        }
-
         final note = _findNote(notes);
         if (note == null) return const Center(child: Text('Note not found'));
 

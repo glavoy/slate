@@ -57,7 +57,7 @@ class JournalRepository {
         [content, now, now, existing['id']],
       );
     }
-    SyncService.instance.syncSoon();
+    SyncService.instance.schedulePush();
   }
 
   Future<void> delete(String id) async {
@@ -74,6 +74,6 @@ class JournalRepository {
       ''',
       [now, now, now, id],
     );
-    SyncService.instance.syncSoon();
+    SyncService.instance.schedulePush();
   }
 }

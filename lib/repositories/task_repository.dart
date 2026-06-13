@@ -100,7 +100,7 @@ class TaskRepository {
         );
       }
     });
-    SyncService.instance.syncSoon();
+    SyncService.instance.schedulePush();
   }
 
   Future<void> undoComplete(Task task) async {
@@ -139,7 +139,7 @@ class TaskRepository {
         );
       }
     });
-    SyncService.instance.syncSoon();
+    SyncService.instance.schedulePush();
   }
 
   Future<void> deleteTask(String taskId) async {
@@ -182,7 +182,7 @@ class TaskRepository {
         now,
       ],
     );
-    SyncService.instance.syncSoon();
+    SyncService.instance.schedulePush();
     return _taskFromRow(
       _local.selectOne('SELECT * FROM tasks WHERE id = ?', [id])!,
     );
@@ -221,7 +221,7 @@ class TaskRepository {
         taskId,
       ],
     );
-    SyncService.instance.syncSoon();
+    SyncService.instance.schedulePush();
     return _taskFromRow(
       _local.selectOne('SELECT * FROM tasks WHERE id = ?', [taskId])!,
     );
@@ -257,7 +257,7 @@ class TaskRepository {
         seriesId,
       ],
     );
-    SyncService.instance.syncSoon();
+    SyncService.instance.schedulePush();
   }
 
   Future<void> _markDeleted(String where, List<Object?> params) async {
@@ -274,7 +274,7 @@ class TaskRepository {
       ''',
       [now, now, now, ...params],
     );
-    SyncService.instance.syncSoon();
+    SyncService.instance.schedulePush();
   }
 
   Task _taskFromRow(Map<String, Object?> row) {

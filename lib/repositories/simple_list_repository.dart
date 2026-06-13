@@ -51,6 +51,6 @@ class SimpleListRepository {
       ''',
       [userId, content, now, now],
     );
-    SyncService.instance.syncSoon();
+    SyncService.instance.schedulePush();
   }
 }

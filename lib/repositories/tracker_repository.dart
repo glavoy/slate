@@ -41,7 +41,7 @@ class TrackerRepository {
       ''',
       [id, _client.auth.currentUser!.id, name, unit, now, now, now],
     );
-    SyncService.instance.syncSoon();
+    SyncService.instance.schedulePush();
     return TrackerMetric.fromJson(
       _local.selectOne('SELECT * FROM tracker_metrics WHERE id = ?', [id])!,
     );
@@ -71,7 +71,7 @@ class TrackerRepository {
       'UPDATE tracker_metrics SET ${parts.join(', ')} WHERE id = ?',
       args,
     );
-    SyncService.instance.syncSoon();
+    SyncService.instance.schedulePush();
   }
 
   Future<void> deleteMetric(String id) async {
@@ -102,7 +102,7 @@ class TrackerRepository {
         [now, now, now, id],
       );
     });
-    SyncService.instance.syncSoon();
+    SyncService.instance.schedulePush();
   }
 
   Future<List<TrackerEntry>> fetchEntries(String metricId, {int? limit}) async {
@@ -142,7 +142,7 @@ class TrackerRepository {
         now,
       ],
     );
-    SyncService.instance.syncSoon();
+    SyncService.instance.schedulePush();
     return TrackerEntry.fromJson(
       _local.selectOne('SELECT * FROM tracker_entries WHERE id = ?', [id])!,
     );
@@ -182,7 +182,7 @@ class TrackerRepository {
       'UPDATE tracker_entries SET ${parts.join(', ')} WHERE id = ?',
       args,
     );
-    SyncService.instance.syncSoon();
+    SyncService.instance.schedulePush();
   }
 
   Future<void> deleteEntry(String id) async {
@@ -199,6 +199,6 @@ class TrackerRepository {
       ''',
       [now, now, now, id],
     );
-    SyncService.instance.syncSoon();
+    SyncService.instance.schedulePush();
   }
 }
