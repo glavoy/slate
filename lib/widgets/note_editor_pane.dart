@@ -276,18 +276,17 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
       return;
     }
 
-    final titleMatches = note.title == _titleController.text;
-    final contentMatches =
-        note.content == _lastSavedContent || note.content == _serializedContent;
-    if (titleMatches && contentMatches) {
-      _lastSavedTitle = note.title;
-      _lastSavedContent = _serializedContent;
+    // While the user is editing (focused) or has unsaved edits, never touch the
+    // saved baseline or the document. Doing so on a rebuild that fires mid-edit
+    // (e.g. after a single delete/paste) wrongly marks the live content as saved,
+    // and the pending debounce then skips persisting it.
+    if (_isDirty || _hasFocus) return;
+
+    // Editor is clean: the persisted note is the source of truth.
+    if (note.title == _lastSavedTitle && note.content == _lastSavedContent) {
       _lastAppliedRemoteUpdate = note.updatedAt;
       return;
     }
-
-    // While the user is actively editing this pane, never overwrite their work.
-    if (_isDirty || _hasFocus) return;
     if (_lastAppliedRemoteUpdate != null &&
         !note.updatedAt.isAfter(_lastAppliedRemoteUpdate!)) {
       return;
@@ -434,6 +433,22 @@ class _NoteFormatToolbar extends StatelessWidget {
     }
   }
 
+  /// Checkbox shares the `list` attribute with bullet/numbered but has two "on"
+  /// values (checked + unchecked). Treat either as active so a single tap on a
+  /// checked line removes the list instead of just unchecking it.
+  void _toggleCheckbox() {
+    final current =
+        controller.getSelectionStyle().attributes[Attribute.list.key];
+    final isCheckbox =
+        current?.value == Attribute.unchecked.value ||
+        current?.value == Attribute.checked.value;
+    controller.formatSelection(
+      isCheckbox
+          ? Attribute.clone(Attribute.unchecked, null)
+          : Attribute.unchecked,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -538,9 +553,7 @@ class _NoteFormatToolbar extends StatelessWidget {
                     icon: Icons.check_box_outlined,
                     tooltip: 'Checkbox',
                     active: isCheckbox,
-                    onPressed: () => _withFocus(
-                      () => _toggleBlock(Attribute.unchecked),
-                    ),
+                    onPressed: () => _withFocus(_toggleCheckbox),
                   ),
                 ],
               ),
