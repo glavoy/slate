@@ -3,39 +3,68 @@ import 'dart:async';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:uuid/uuid.dart';
 
 import '../local/local_database.dart';
+import 'sync_remote.dart';
 
 /// Bidirectional sync between the local SQLite database and Supabase.
 ///
-/// Design (see the sync rework plan):
+/// Design:
 ///  * Writes are local-first. Repositories mark rows `pending` and call
 ///    [schedulePush], which coalesces a burst of edits into a single push.
-///  * A full reconcile (push + one pull) runs on app launch, resume, and
-///    connectivity regained — the moments a device is most likely to be a step
-///    behind the other one. There is no constant short-interval polling.
+///  * The server is the single ordering authority. Every table carries an
+///    integer `version` bumped by a server trigger on each UPDATE; clients
+///    never send it. Each local row remembers the last server version it was
+///    based on (`server_version`).
+///  * Pushes are compare-and-swap: an UPDATE only applies if the server row
+///    still has the expected version. A stale device can therefore never
+///    silently overwrite a newer row — the mismatch surfaces as a conflict
+///    that is resolved explicitly (see [_resolveConflict]).
+///  * Conflicts pick a winner by `client_modified_at` (client clock vs client
+///    clock — never client vs server). For notes the losing side is preserved
+///    as a "conflicted copy" note, so a true concurrent edit never loses data.
 ///  * The pull cursor is a per-table high-water mark derived from the maximum
-///    server `updated_at` actually seen, not the device's wall clock. Combined
-///    with the server-side `set_updated_at` trigger this is immune to clock
-///    skew between devices, which previously caused changes to never sync.
-///  * Realtime is an acceleration path that only runs while the app is
-///    foregrounded; [pause]/[resume] tear it down and bring it back.
+///    server `updated_at` actually seen. Only the server writes `updated_at`
+///    (trigger), so the cursor is immune to device clock skew.
+///  * A full reconcile (push + one pull) runs on app launch, resume, and
+///    connectivity regained. Realtime is an acceleration path that only runs
+///    while the app is foregrounded; [pause]/[resume] tear it down and bring
+///    it back.
 class SyncService {
   SyncService._();
 
   static final instance = SyncService._();
 
+  /// Isolated engine instance for tests: no realtime, no connectivity
+  /// listener, no timers. Drive it with [syncNow].
+  @visibleForTesting
+  SyncService.forTest({
+    required SyncRemote remote,
+    required LocalDatabase local,
+    required String userId,
+  }) : _remote = remote,
+       _local = local,
+       _testUserId = userId;
+
   SupabaseClient? _client;
+  SyncRemote? _remote;
   LocalDatabase? _local;
+  String? _testUserId;
   StreamSubscription<dynamic>? _connectivitySubscription;
   RealtimeChannel? _realtimeChannel;
   Timer? _periodicSyncTimer;
   Timer? _pushDebounce;
   final _changes = StreamController<void>.broadcast();
+  static const _uuid = Uuid();
 
   bool _busy = false;
   bool _rerun = false;
   bool _rerunPull = false;
+
+  /// Set when conflict resolution creates new local work (a conflicted copy or
+  /// a local-wins row) so the same reconcile pass pushes it out.
+  bool _followUpPush = false;
   DateTime? _syncStartedAt;
 
   /// Foreground-only safety net. Realtime + foreground/resync cover the common
@@ -46,20 +75,15 @@ class SyncService {
   static const pushDebounceDelay = Duration(seconds: 2);
   static const _pullPageSize = 1000;
 
-  /// Re-pull this far behind the newest row we have seen. Cheap insurance against
-  /// a row committed on another device mid-pagination; applies are idempotent so
-  /// the small overlap is harmless.
+  /// Re-pull this far behind the newest row we have seen. Cheap insurance
+  /// against a row committed on another device mid-pagination; applies are
+  /// idempotent so the small overlap is harmless.
   static const _hwmOverlap = Duration(seconds: 2);
 
   static const _tables = <_SyncTable>[
     _SyncTable('tasks', 'id'),
     _SyncTable('notes', 'id'),
-    _SyncTable(
-      'journal_entries',
-      'id',
-      upsertConflict: 'user_id,entry_date',
-      localConflict: 'user_id, entry_date',
-    ),
+    _SyncTable('journal_entries', 'id', localConflict: 'user_id, entry_date'),
     _SyncTable('simple_list', 'user_id'),
     _SyncTable('tracker_metrics', 'id'),
     _SyncTable(
@@ -72,8 +96,10 @@ class SyncService {
   void configure({
     required SupabaseClient client,
     required LocalDatabase local,
+    SyncRemote? remote,
   }) {
     _client = client;
+    _remote = remote ?? SupabaseSyncRemote(client);
     _local = local;
     _connectivitySubscription ??= Connectivity().onConnectivityChanged.listen(
       (_) => syncSoon(),
@@ -85,6 +111,8 @@ class SyncService {
   }
 
   Stream<void> get changes => _changes.stream;
+
+  String? get _userId => _testUserId ?? _client?.auth.currentUser?.id;
 
   // ── Lifecycle ──────────────────────────────────────────────────────────────
 
@@ -98,8 +126,8 @@ class SyncService {
   }
 
   /// Call when the app is backgrounded. Flushes pending writes, then releases
-  /// the realtime socket and the foreground timer so a backgrounded app holds no
-  /// open connection.
+  /// the realtime socket and the foreground timer so a backgrounded app holds
+  /// no open connection.
   Future<void> pause() async {
     _periodicSyncTimer?.cancel();
     _periodicSyncTimer = null;
@@ -148,10 +176,10 @@ class SyncService {
   // ── Core runner ──────────────────────────────────────────────────────────────
 
   Future<void> _execute({required bool pull}) async {
-    final client = _client;
+    final remote = _remote;
     final local = _local;
-    final user = client?.auth.currentUser;
-    if (client == null || local == null || user == null) return;
+    final userId = _userId;
+    if (remote == null || local == null || userId == null) return;
 
     if (_busy) {
       _rerun = true;
@@ -162,7 +190,7 @@ class SyncService {
     _busy = true;
     _syncStartedAt = DateTime.now();
     try {
-      await _run(client, local, user.id, pull: pull).timeout(
+      await _run(remote, local, userId, pull: pull).timeout(
         syncTimeout,
         onTimeout: () => _logSyncMessage('sync timed out'),
       );
@@ -183,14 +211,22 @@ class SyncService {
   }
 
   Future<void> _run(
-    SupabaseClient client,
+    SyncRemote remote,
     LocalDatabase local,
     String userId, {
     required bool pull,
   }) async {
-    await _pushPending(client, local, userId);
+    _followUpPush = false;
+    await _pushPending(remote, local, userId);
     if (pull) {
-      await _pullRemote(client, local, userId);
+      await _pullRemote(remote, local, userId);
+    }
+    if (_followUpPush) {
+      // Conflict resolution produced new local work (conflicted copies,
+      // local-wins rows). Push it in the same pass so both devices converge
+      // without waiting for the next trigger. Bounded: one extra pass.
+      _followUpPush = false;
+      await _pushPending(remote, local, userId);
     }
     _changes.add(null);
   }
@@ -241,32 +277,31 @@ class SyncService {
   }
 
   void _handleRealtimePayload(_SyncTable table, PostgresChangePayload payload) {
-    final client = _client;
     final local = _local;
-    final user = client?.auth.currentUser;
-    if (client == null || local == null || user == null) return;
+    final userId = _userId;
+    if (local == null || userId == null) return;
 
     try {
       final syncTime = nowIso();
       if (payload.eventType == PostgresChangeEvent.delete) {
+        // Physical deletes only happen via the legacy tombstone fallback. If a
+        // pending local edit exists, leave it: the push path will discover the
+        // missing server row and resolve it (edit wins for notes).
         final row = payload.oldRecord;
-        if (row['user_id'] == null || row['user_id'] == user.id) {
+        if (row['user_id'] == null || row['user_id'] == userId) {
           final key = row[table.keyColumn];
           if (key != null) {
-            local.execute(
-              '''
-              DELETE FROM ${table.name}
-              WHERE ${table.keyColumn} = ? AND user_id = ?
-              ''',
-              [key, user.id],
-            );
-            _changes.add(null);
+            final existing = _selectLocalByKey(local, table, key);
+            if (existing != null && existing['sync_status'] != 'pending') {
+              _deleteLocalRow(local, table, key, userId);
+              _changes.add(null);
+            }
           }
         }
       } else {
         final row = payload.newRecord;
-        if (row['user_id'] == null || row['user_id'] == user.id) {
-          final changed = _applyRemoteRow(local, table, row, user.id, syncTime);
+        if (row['user_id'] == null || row['user_id'] == userId) {
+          final changed = _applyRemoteRow(local, table, row, userId, syncTime);
           if (changed) _changes.add(null);
         }
       }
@@ -282,7 +317,7 @@ class SyncService {
   // ── Push ─────────────────────────────────────────────────────────────────────
 
   Future<void> _pushPending(
-    SupabaseClient client,
+    SyncRemote remote,
     LocalDatabase local,
     String userId,
   ) async {
@@ -296,47 +331,9 @@ class SyncService {
         ['pending', userId],
       );
       for (final row in rows) {
-        final key = row[table.keyColumn];
-        if (key == null) continue;
-
+        if (row[table.keyColumn] == null) continue;
         try {
-          if (sqlToBool(row['pending_delete'])) {
-            await _pushDelete(client, table, row, syncTime);
-            if (pushedSnapshotStillCurrent(
-              pushedClientModifiedAt: row['client_modified_at'],
-              currentRow: _selectExistingLocal(local, table, row),
-            )) {
-              local.execute(
-                '''
-                DELETE FROM ${table.name}
-                WHERE ${table.keyColumn} = ?
-                  AND user_id = ?
-                  AND sync_status = 'pending'
-                  AND client_modified_at = ?
-                ''',
-                [key, userId, row['client_modified_at']],
-              );
-            }
-            continue;
-          }
-
-          await _pushUpsert(client, table, row);
-          if (pushedSnapshotStillCurrent(
-            pushedClientModifiedAt: row['client_modified_at'],
-            currentRow: _selectExistingLocal(local, table, row),
-          )) {
-            local.execute(
-              '''
-              UPDATE ${table.name}
-              SET sync_status = 'synced', last_synced_at = ?
-              WHERE ${table.keyColumn} = ?
-                AND user_id = ?
-                AND sync_status = 'pending'
-                AND client_modified_at = ?
-              ''',
-              [syncTime, key, userId, row['client_modified_at']],
-            );
-          }
+          await _pushRow(remote, local, table, row, userId, syncTime);
         } catch (error, stackTrace) {
           // Leave the row pending; a later sync attempt can retry it.
           _logSyncError('push ${table.name}', error, stackTrace);
@@ -345,72 +342,351 @@ class SyncService {
     }
   }
 
-  Future<void> _pushDelete(
-    SupabaseClient client,
+  Future<void> _pushRow(
+    SyncRemote remote,
+    LocalDatabase local,
     _SyncTable table,
     Map<String, Object?> row,
-    String syncTime,
-  ) async {
-    final key = row[table.keyColumn];
-    final timestamp = row['client_modified_at'] ?? syncTime;
-    try {
-      // updated_at is stamped by the server trigger; we only set the tombstone.
-      await client
-          .from(table.name)
-          .update({'sync_deleted_at': timestamp})
-          .eq(table.keyColumn, key!);
-    } catch (_) {
-      await client.from(table.name).delete().eq(table.keyColumn, key!);
-    }
-  }
+    String userId,
+    String syncTime, {
+    bool retryOnConflict = true,
+  }) async {
+    final key = row[table.keyColumn]!;
 
-  Future<void> _pushUpsert(
-    SupabaseClient client,
-    _SyncTable table,
-    Map<String, Object?> row,
-  ) async {
+    if (sqlToBool(row['pending_delete'])) {
+      final timestamp = (row['client_modified_at'] ?? syncTime).toString();
+      await remote.tombstone(table.name, table.keyColumn, key, timestamp);
+      if (pushedSnapshotStillCurrent(
+        pushedClientModifiedAt: row['client_modified_at'],
+        currentRow: _selectLocalByKey(local, table, key),
+      )) {
+        local.execute(
+          '''
+          DELETE FROM ${table.name}
+          WHERE ${table.keyColumn} = ?
+            AND user_id = ?
+            AND sync_status = 'pending'
+            AND client_modified_at = ?
+          ''',
+          [key, userId, row['client_modified_at']],
+        );
+      }
+      return;
+    }
+
     final payload = _remotePayload(table.name, row);
-    if (table.name == 'journal_entries') {
-      await _pushJournalEntry(client, table, payload);
-      return;
-    }
-    if (table.upsertConflict == null) {
-      await client.from(table.name).upsert(payload);
-    } else {
-      await client
-          .from(table.name)
-          .upsert(payload, onConflict: table.upsertConflict);
-    }
-  }
+    final baseVersion = (row['server_version'] as num?)?.toInt();
 
-  Future<void> _pushJournalEntry(
-    SupabaseClient client,
-    _SyncTable table,
-    Map<String, dynamic> payload,
-  ) async {
-    try {
-      await client
-          .from(table.name)
-          .upsert(payload, onConflict: table.upsertConflict);
-      return;
-    } catch (_) {
-      final existing = await client
-          .from(table.name)
-          .select('id')
-          .eq('entry_date', payload['entry_date'])
-          .maybeSingle();
-      if (existing == null) {
-        await client.from(table.name).insert(payload);
-      } else {
-        await client.from(table.name).update(payload).eq('id', existing['id']);
+    RemoteRow? serverRow;
+    RemoteRow? conflictingRow;
+    if (baseVersion == null) {
+      // Never seen on the server: plain insert. A unique violation means the
+      // row already exists there (journal same-date created on two devices,
+      // simple_list primary key, pre-migration rows).
+      try {
+        serverRow = await remote.insert(table.name, payload);
+      } on RemoteUniqueViolation {
+        conflictingRow = await _fetchServerCounterpart(remote, table, row);
+      }
+    } else {
+      serverRow = await remote.casUpdate(
+        table.name,
+        table.keyColumn,
+        key,
+        baseVersion,
+        payload,
+      );
+      if (serverRow == null) {
+        conflictingRow = await remote.fetchWhere(table.name, {
+          table.keyColumn: key,
+        });
       }
     }
+
+    if (serverRow != null) {
+      _markPushed(local, table, row, serverRow, userId, syncTime);
+      return;
+    }
+
+    final resolution = _resolveConflict(
+      local,
+      table,
+      row,
+      conflictingRow,
+      userId,
+      syncTime,
+    );
+    if (retryOnConflict && resolution == _Resolution.localWins) {
+      final retryKey = conflictingRow?[table.keyColumn] ?? key;
+      final fresh = _selectLocalByKey(local, table, retryKey);
+      if (fresh != null &&
+          fresh['sync_status'] == 'pending' &&
+          !sqlToBool(fresh['pending_delete'])) {
+        await _pushRow(
+          remote,
+          local,
+          table,
+          fresh,
+          userId,
+          syncTime,
+          retryOnConflict: false,
+        );
+      }
+    }
+  }
+
+  /// Locates the server row an insert collided with: by primary key first,
+  /// then by the table's composite unique key (journal date, tracker entry).
+  Future<RemoteRow?> _fetchServerCounterpart(
+    SyncRemote remote,
+    _SyncTable table,
+    Map<String, Object?> row,
+  ) async {
+    final byKey = await remote.fetchWhere(table.name, {
+      table.keyColumn: row[table.keyColumn],
+    });
+    if (byKey != null) return byKey;
+    if (table.localConflict == 'user_id, entry_date') {
+      return remote.fetchWhere(table.name, {
+        'user_id': row['user_id'],
+        'entry_date': row['entry_date'],
+      });
+    }
+    if (table.localConflict == 'metric_id, user_id, recorded_at') {
+      return remote.fetchWhere(table.name, {
+        'metric_id': row['metric_id'],
+        'user_id': row['user_id'],
+        'recorded_at': row['recorded_at'],
+      });
+    }
+    return null;
+  }
+
+  /// Records a successful push: the server's version/updated_at become the new
+  /// baseline. Only flips the row to `synced` if it hasn't been edited again
+  /// mid-push; a newer local edit stays pending but still adopts the baseline
+  /// so its own push CASes against the row we just wrote.
+  void _markPushed(
+    LocalDatabase local,
+    _SyncTable table,
+    Map<String, Object?> pushedRow,
+    RemoteRow serverRow,
+    String userId,
+    String syncTime,
+  ) {
+    final key = pushedRow[table.keyColumn];
+    final version = (serverRow['version'] as num?)?.toInt() ?? 1;
+    final updatedAt = (serverRow['updated_at'] ?? syncTime).toString();
+    final current = _selectLocalByKey(local, table, key);
+    if (pushedSnapshotStillCurrent(
+      pushedClientModifiedAt: pushedRow['client_modified_at'],
+      currentRow: current,
+    )) {
+      local.execute(
+        '''
+        UPDATE ${table.name}
+        SET sync_status = 'synced',
+            last_synced_at = ?,
+            server_version = ?,
+            updated_at = ?
+        WHERE ${table.keyColumn} = ?
+          AND user_id = ?
+          AND sync_status = 'pending'
+          AND client_modified_at = ?
+        ''',
+        [
+          syncTime,
+          version,
+          updatedAt,
+          key,
+          userId,
+          pushedRow['client_modified_at'],
+        ],
+      );
+    } else if (current != null) {
+      local.execute(
+        '''
+        UPDATE ${table.name}
+        SET server_version = ?
+        WHERE ${table.keyColumn} = ? AND user_id = ?
+        ''',
+        [version, key, userId],
+      );
+    }
+  }
+
+  // ── Conflict resolution ──────────────────────────────────────────────────────
+
+  /// Resolves a detected conflict between a pending local row and the
+  /// authoritative server row. Winner = newer `client_modified_at` (client
+  /// clock vs client clock). For notes the loser is preserved as a
+  /// "conflicted copy" note so no content is ever silently discarded.
+  _Resolution _resolveConflict(
+    LocalDatabase local,
+    _SyncTable table,
+    Map<String, Object?> localRow,
+    RemoteRow? serverRow,
+    String userId,
+    String syncTime,
+  ) {
+    final key = localRow[table.keyColumn];
+    // Bail if the local row moved on since this snapshot (e.g. the user is
+    // typing); the next sync pass re-resolves against the fresh edit.
+    final current = _selectLocalByKey(local, table, key);
+    if (current == null ||
+        current['sync_status'] != 'pending' ||
+        sqlToBool(current['pending_delete']) ||
+        current['client_modified_at'] != localRow['client_modified_at']) {
+      return _Resolution.skipped;
+    }
+
+    final isNotes = table.name == 'notes';
+
+    if (serverRow == null) {
+      // The row vanished from the server (legacy physical delete).
+      if (isNotes) {
+        // Edit wins: clear the baseline so the retry re-inserts the note.
+        local.execute(
+          'UPDATE notes SET server_version = NULL WHERE id = ? AND user_id = ?',
+          [key, userId],
+        );
+        _followUpPush = true;
+        return _Resolution.localWins;
+      }
+      _deleteLocalRow(local, table, key, userId);
+      return _Resolution.localDropped;
+    }
+
+    final serverVersion = (serverRow['version'] as num?)?.toInt() ?? 1;
+    final serverKey = serverRow[table.keyColumn];
+
+    if (serverRow['sync_deleted_at'] != null) {
+      if (isNotes) {
+        // Edit wins over a delete: adopt the tombstone's version as the
+        // baseline; the retry CAS rewrites the row with sync_deleted_at = null,
+        // resurrecting the note.
+        local.execute(
+          'UPDATE notes SET server_version = ? WHERE id = ? AND user_id = ?',
+          [serverVersion, key, userId],
+        );
+        _followUpPush = true;
+        return _Resolution.localWins;
+      }
+      _deleteLocalRow(local, table, key, userId);
+      return _Resolution.localDropped;
+    }
+
+    final localTime = _parseTimestamp(localRow['client_modified_at']);
+    final serverTime = _parseTimestamp(
+      serverRow['client_modified_at'] ?? serverRow['updated_at'],
+    );
+    final localWins =
+        localTime != null &&
+        serverTime != null &&
+        localTime.isAfter(serverTime);
+
+    if (localWins) {
+      if (isNotes && _noteContentDiffers(localRow, serverRow)) {
+        // Our content is about to overwrite the server's; preserve theirs.
+        _createConflictCopy(local, serverRow, userId);
+      }
+      if (serverKey != null && serverKey != key) {
+        // Same logical row under a different id (composite-key collision, e.g.
+        // a journal entry for the same date). Adopt the server identity so the
+        // retry CAS targets the right row.
+        local.execute(
+          '''
+          UPDATE ${table.name}
+          SET ${table.keyColumn} = ?, server_version = ?
+          WHERE ${table.keyColumn} = ? AND user_id = ?
+          ''',
+          [serverKey, serverVersion, key, userId],
+        );
+      } else {
+        local.execute(
+          '''
+          UPDATE ${table.name}
+          SET server_version = ?
+          WHERE ${table.keyColumn} = ? AND user_id = ?
+          ''',
+          [serverVersion, key, userId],
+        );
+      }
+      _followUpPush = true;
+      return _Resolution.localWins;
+    }
+
+    // Server wins.
+    if (isNotes && _noteContentDiffers(localRow, serverRow)) {
+      // The server's content replaces ours; preserve ours.
+      _createConflictCopy(local, localRow, userId);
+      _followUpPush = true;
+    }
+    _applyServerRowLocally(local, table, serverRow, userId, syncTime);
+    return _Resolution.serverApplied;
+  }
+
+  void _deleteLocalRow(
+    LocalDatabase local,
+    _SyncTable table,
+    Object? key,
+    String userId,
+  ) {
+    local.execute(
+      'DELETE FROM ${table.name} WHERE ${table.keyColumn} = ? AND user_id = ?',
+      [key, userId],
+    );
+  }
+
+  bool _noteContentDiffers(Map<String, Object?> a, Map<String, Object?> b) {
+    return (a['title'] ?? '').toString() != (b['title'] ?? '').toString() ||
+        (a['content'] ?? '').toString() != (b['content'] ?? '').toString();
+  }
+
+  /// Preserves the losing side of a notes conflict as a new pending note. It
+  /// syncs to the server like any other locally created note.
+  void _createConflictCopy(
+    LocalDatabase local,
+    Map<String, Object?> source,
+    String userId,
+  ) {
+    final now = nowIso();
+    final stamp = _conflictStamp(DateTime.now());
+    final baseTitle = (source['title'] ?? '').toString();
+    final title = baseTitle.isEmpty
+        ? '(conflicted copy $stamp)'
+        : '$baseTitle (conflicted copy $stamp)';
+    local.execute(
+      '''
+      INSERT INTO notes (
+        id, user_id, title, content, pinned, deleted_at, created_at,
+        updated_at, sync_status, client_modified_at, pending_delete,
+        server_version
+      ) VALUES (?, ?, ?, ?, 0, NULL, ?, ?, 'pending', ?, 0, NULL)
+      ''',
+      [
+        _uuid.v4(),
+        userId,
+        title,
+        (source['content'] ?? '').toString(),
+        now,
+        now,
+        now,
+      ],
+    );
+  }
+
+  static String _conflictStamp(DateTime dt) {
+    final local = dt.toLocal();
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${local.year}-${two(local.month)}-${two(local.day)} '
+        '${two(local.hour)}:${two(local.minute)}';
   }
 
   // ── Pull ─────────────────────────────────────────────────────────────────────
 
   Future<void> _pullRemote(
-    SupabaseClient client,
+    SyncRemote remote,
     LocalDatabase local,
     String userId,
   ) async {
@@ -424,18 +700,14 @@ class SyncService {
 
       while (true) {
         try {
-          dynamic query = client.from(table.name).select().eq(
-            'user_id',
-            userId,
+          final rows = await remote.pullSince(
+            table.name,
+            userId: userId,
+            keyColumn: table.keyColumn,
+            since: since,
+            offset: from,
+            limit: _pullPageSize,
           );
-          if (since != null) {
-            query = query.gte('updated_at', since);
-          }
-          query = query
-              .order(table.keyColumn)
-              .range(from, from + _pullPageSize - 1);
-          final dynamic response = await query;
-          final rows = (response as List).cast<Map<String, dynamic>>();
           for (final row in rows) {
             _applyRemoteRow(local, table, row, userId, syncTime);
             final updatedAt = _parseTimestamp(row['updated_at']);
@@ -478,6 +750,9 @@ class SyncService {
     return next.toUtc().toIso8601String();
   }
 
+  /// Applies one remote row to the local database. Ordering decisions are made
+  /// purely on server version numbers — never on clocks. Returns true when
+  /// local data changed.
   bool _applyRemoteRow(
     LocalDatabase local,
     _SyncTable table,
@@ -490,54 +765,61 @@ class SyncService {
     if (row['user_id'] != null && row['user_id'] != userId) return false;
 
     final existing = _selectExistingLocal(local, table, row);
-    if (existing != null && !_remoteShouldApply(existing, row)) {
-      return false;
-    }
+    final remoteVersion = (row['version'] as num?)?.toInt() ?? 1;
 
-    if (row['sync_deleted_at'] != null) {
-      local.execute(
-        'DELETE FROM ${table.name} WHERE ${table.keyColumn} = ? AND user_id = ?',
-        [key, userId],
-      );
-      // Also remove a local row found by composite key with a different id.
-      if (existing != null && existing[table.keyColumn] != key) {
-        local.execute(
-          'DELETE FROM ${table.name} WHERE ${table.keyColumn} = ? AND user_id = ?',
-          [existing[table.keyColumn], userId],
-        );
-      }
+    if (existing == null) {
+      if (row['sync_deleted_at'] != null) return false;
+      _applyServerRowLocally(local, table, row, userId, syncTime);
       return true;
     }
 
-    // If we found an existing row by composite key but with a different id,
-    // delete it first so the upsert doesn't hit a UNIQUE constraint violation.
-    if (existing != null && existing[table.keyColumn] != key) {
-      local.execute(
-        'DELETE FROM ${table.name} WHERE ${table.keyColumn} = ? AND user_id = ?',
-        [existing[table.keyColumn], userId],
-      );
+    final localBaseline = (existing['server_version'] as num?)?.toInt();
+    if (localBaseline != null && remoteVersion <= localBaseline) {
+      // Our own echo or a stale, out-of-order arrival; nothing newer here.
+      return false;
     }
 
-    _upsertLocalRemoteRow(local, table.name, row, userId, syncTime);
-    return true;
+    if (existing['sync_status'] != 'pending') {
+      // Clean local row: the server is authoritative.
+      if (row['sync_deleted_at'] != null) {
+        _deleteLocalRow(local, table, key, userId);
+        final existingKey = existing[table.keyColumn];
+        if (existingKey != null && existingKey != key) {
+          _deleteLocalRow(local, table, existingKey, userId);
+        }
+        return true;
+      }
+      _applyServerRowLocally(local, table, row, userId, syncTime);
+      return true;
+    }
+
+    if (sqlToBool(existing['pending_delete'])) {
+      // Local wants this row gone; the tombstone push proceeds regardless of
+      // the newer remote version (delete is terminal).
+      return false;
+    }
+
+    // Pending local edit vs a genuinely newer server row: a real conflict.
+    final resolution = _resolveConflict(
+      local,
+      table,
+      existing,
+      row,
+      userId,
+      syncTime,
+    );
+    return resolution == _Resolution.serverApplied ||
+        resolution == _Resolution.localDropped;
   }
 
-  /// Whether an incoming remote row should overwrite the existing local one.
-  ///
-  /// For a `pending` local row we compare against its `client_modified_at` (the
-  /// unsynced edit time) so a fresh local edit is not lost. For a `synced` local
-  /// row we compare against its stored server `updated_at`, so a stale or
-  /// out-of-order remote echo can never roll the row back to older content.
-  bool _remoteShouldApply(
-    Map<String, Object?> existing,
-    Map<String, dynamic> row,
+  Map<String, Object?>? _selectLocalByKey(
+    LocalDatabase local,
+    _SyncTable table,
+    Object? key,
   ) {
-    final localTime = existing['sync_status'] == 'pending'
-        ? existing['client_modified_at']
-        : existing['updated_at'];
-    return remoteWinsPendingLocal(
-      localClientModifiedAt: localTime,
-      remoteRow: row,
+    return local.selectOne(
+      'SELECT * FROM ${table.name} WHERE ${table.keyColumn} = ?',
+      [key],
     );
   }
 
@@ -547,10 +829,7 @@ class SyncService {
     Map<String, dynamic> row,
   ) {
     // Always try the primary key first.
-    final byKey = local.selectOne(
-      'SELECT * FROM ${table.name} WHERE ${table.keyColumn} = ?',
-      [row[table.keyColumn]],
-    );
+    final byKey = _selectLocalByKey(local, table, row[table.keyColumn]);
     if (byKey != null) return byKey;
 
     // For tables with a composite unique key, also look up by that key so we
@@ -583,20 +862,22 @@ class SyncService {
   }
 
   Map<String, dynamic> _remotePayload(String table, Map<String, Object?> row) {
-    // Local-only sync bookkeeping never leaves the device. updated_at is owned
-    // by the server trigger, so we never send it either.
-    final excluded = {
+    // Local-only sync bookkeeping never leaves the device. version and
+    // updated_at are owned by the server, so we never send them either.
+    // sync_deleted_at IS sent even when null: an explicit null clears the
+    // tombstone when an edit wins over a delete (note resurrection).
+    const excluded = {
       'sync_status',
       'last_synced_at',
-      'client_modified_at',
       'pending_delete',
       'updated_at',
+      'server_version',
+      'version',
     };
     final payload = <String, dynamic>{};
     for (final entry in row.entries) {
       if (excluded.contains(entry.key)) continue;
       if (!_columnsFor(table).contains(entry.key)) continue;
-      if (entry.key == 'sync_deleted_at' && entry.value == null) continue;
       final value = entry.value;
       if (value is int && _boolColumns(table).contains(entry.key)) {
         payload[entry.key] = value == 1;
@@ -607,14 +888,14 @@ class SyncService {
     return payload;
   }
 
-  void _upsertLocalRemoteRow(
+  void _applyServerRowLocally(
     LocalDatabase local,
-    String table,
+    _SyncTable table,
     Map<String, dynamic> row,
     String userId,
     String syncTime,
   ) {
-    final normalized = _normalizeRemoteRow(table, row, userId, syncTime);
+    final normalized = _normalizeRemoteRow(table.name, row, userId, syncTime);
     final columns = normalized.keys.toList();
     final placeholders = List.filled(columns.length, '?').join(', ');
     // INSERT OR REPLACE handles all UNIQUE/PK conflicts by deleting every
@@ -623,7 +904,7 @@ class SyncService {
     // conflict on the PRIMARY KEY (same id, different recorded_at) AND on the
     // composite UNIQUE key (different id, same recorded_at).
     local.execute('''
-      INSERT OR REPLACE INTO $table (${columns.join(', ')})
+      INSERT OR REPLACE INTO ${table.name} (${columns.join(', ')})
       VALUES ($placeholders)
       ''', columns.map((c) => normalized[c]).toList());
   }
@@ -643,8 +924,9 @@ class SyncService {
       'sync_deleted_at': row['sync_deleted_at'],
       'sync_status': 'synced',
       'last_synced_at': syncTime,
-      'client_modified_at': updatedAt,
+      'client_modified_at': (row['client_modified_at'] ?? updatedAt).toString(),
       'pending_delete': 0,
+      'server_version': (row['version'] as num?)?.toInt() ?? 1,
     };
     final normalized = <String, Object?>{};
     for (final column in _columnsFor(table)) {
@@ -685,6 +967,7 @@ class SyncService {
       'last_synced_at',
       'client_modified_at',
       'pending_delete',
+      'server_version',
     },
     'notes' => {
       'id',
@@ -700,6 +983,7 @@ class SyncService {
       'last_synced_at',
       'client_modified_at',
       'pending_delete',
+      'server_version',
     },
     'journal_entries' => {
       'id',
@@ -713,6 +997,7 @@ class SyncService {
       'last_synced_at',
       'client_modified_at',
       'pending_delete',
+      'server_version',
     },
     'simple_list' => {
       'user_id',
@@ -723,6 +1008,7 @@ class SyncService {
       'last_synced_at',
       'client_modified_at',
       'pending_delete',
+      'server_version',
     },
     'tracker_metrics' => {
       'id',
@@ -736,6 +1022,7 @@ class SyncService {
       'last_synced_at',
       'client_modified_at',
       'pending_delete',
+      'server_version',
     },
     'tracker_entries' => {
       'id',
@@ -750,20 +1037,10 @@ class SyncService {
       'last_synced_at',
       'client_modified_at',
       'pending_delete',
+      'server_version',
     },
     _ => const <String>{},
   };
-
-  @visibleForTesting
-  static bool remoteWinsPendingLocal({
-    required Object? localClientModifiedAt,
-    required Map<String, dynamic> remoteRow,
-  }) {
-    final localTime = _parseTimestamp(localClientModifiedAt);
-    final remoteTime = _remoteModifiedAt(remoteRow);
-    if (localTime == null || remoteTime == null) return true;
-    return !localTime.isAfter(remoteTime);
-  }
 
   @visibleForTesting
   static bool pushedSnapshotStillCurrent({
@@ -778,11 +1055,6 @@ class SyncService {
   static DateTime? _parseTimestamp(Object? value) =>
       value == null ? null : DateTime.tryParse(value.toString());
 
-  static DateTime? _remoteModifiedAt(Map<String, dynamic> row) =>
-      _parseTimestamp(
-        row['sync_deleted_at'] ?? row['updated_at'] ?? row['created_at'],
-      );
-
   void _logSyncError(String operation, Object error, StackTrace stackTrace) {
     if (!kDebugMode) return;
     debugPrint('Slate sync $operation failed: $error');
@@ -795,16 +1067,12 @@ class SyncService {
   }
 }
 
+enum _Resolution { localWins, serverApplied, localDropped, skipped }
+
 class _SyncTable {
-  const _SyncTable(
-    this.name,
-    this.keyColumn, {
-    this.upsertConflict,
-    this.localConflict,
-  });
+  const _SyncTable(this.name, this.keyColumn, {this.localConflict});
 
   final String name;
   final String keyColumn;
-  final String? upsertConflict;
   final String? localConflict;
 }

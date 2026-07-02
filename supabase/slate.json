@@ -46,6 +46,18 @@
               "type": "timestamp with time zone",
               "nullable": true,
               "default": null
+            },
+            {
+              "column": "version",
+              "type": "bigint",
+              "nullable": false,
+              "default": "1"
+            },
+            {
+              "column": "client_modified_at",
+              "type": "timestamp with time zone",
+              "nullable": true,
+              "default": null
             }
           ]
         },
@@ -105,6 +117,18 @@
               "type": "timestamp with time zone",
               "nullable": true,
               "default": null
+            },
+            {
+              "column": "version",
+              "type": "bigint",
+              "nullable": false,
+              "default": "1"
+            },
+            {
+              "column": "client_modified_at",
+              "type": "timestamp with time zone",
+              "nullable": true,
+              "default": null
             }
           ]
         },
@@ -131,6 +155,18 @@
             },
             {
               "column": "sync_deleted_at",
+              "type": "timestamp with time zone",
+              "nullable": true,
+              "default": null
+            },
+            {
+              "column": "version",
+              "type": "bigint",
+              "nullable": false,
+              "default": "1"
+            },
+            {
+              "column": "client_modified_at",
               "type": "timestamp with time zone",
               "nullable": true,
               "default": null
@@ -217,6 +253,18 @@
               "type": "timestamp with time zone",
               "nullable": true,
               "default": null
+            },
+            {
+              "column": "version",
+              "type": "bigint",
+              "nullable": false,
+              "default": "1"
+            },
+            {
+              "column": "client_modified_at",
+              "type": "timestamp with time zone",
+              "nullable": true,
+              "default": null
             }
           ]
         },
@@ -270,6 +318,18 @@
               "type": "timestamp with time zone",
               "nullable": true,
               "default": null
+            },
+            {
+              "column": "version",
+              "type": "bigint",
+              "nullable": false,
+              "default": "1"
+            },
+            {
+              "column": "client_modified_at",
+              "type": "timestamp with time zone",
+              "nullable": true,
+              "default": null
             }
           ]
         },
@@ -314,6 +374,18 @@
             },
             {
               "column": "sync_deleted_at",
+              "type": "timestamp with time zone",
+              "nullable": true,
+              "default": null
+            },
+            {
+              "column": "version",
+              "type": "bigint",
+              "nullable": false,
+              "default": "1"
+            },
+            {
+              "column": "client_modified_at",
               "type": "timestamp with time zone",
               "nullable": true,
               "default": null
@@ -1555,6 +1627,13 @@
       ],
       "functions": [
         {
+          "name": "bump_version",
+          "args": "",
+          "returns": "trigger",
+          "security_definer": false,
+          "definition": "CREATE OR REPLACE FUNCTION public.bump_version()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\nbegin\n  new.version := coalesce(old.version, 0) + 1;\n  return new;\nend;\n$function$\n"
+        },
+        {
           "name": "set_updated_at",
           "args": "",
           "returns": "trigger",
@@ -1688,6 +1767,13 @@
       "triggers": [
         {
           "table": "journal_entries",
+          "trigger": "bump_version",
+          "event": "UPDATE",
+          "timing": "BEFORE",
+          "statement": "EXECUTE FUNCTION bump_version()"
+        },
+        {
+          "table": "journal_entries",
           "trigger": "set_updated_at",
           "event": "INSERT",
           "timing": "BEFORE",
@@ -1702,10 +1788,10 @@
         },
         {
           "table": "notes",
-          "trigger": "set_updated_at",
-          "event": "INSERT",
+          "trigger": "bump_version",
+          "event": "UPDATE",
           "timing": "BEFORE",
-          "statement": "EXECUTE FUNCTION set_updated_at()"
+          "statement": "EXECUTE FUNCTION bump_version()"
         },
         {
           "table": "notes",
@@ -1715,6 +1801,20 @@
           "statement": "EXECUTE FUNCTION set_updated_at()"
         },
         {
+          "table": "notes",
+          "trigger": "set_updated_at",
+          "event": "INSERT",
+          "timing": "BEFORE",
+          "statement": "EXECUTE FUNCTION set_updated_at()"
+        },
+        {
+          "table": "simple_list",
+          "trigger": "bump_version",
+          "event": "UPDATE",
+          "timing": "BEFORE",
+          "statement": "EXECUTE FUNCTION bump_version()"
+        },
+        {
           "table": "simple_list",
           "trigger": "set_updated_at",
           "event": "INSERT",
@@ -1727,6 +1827,13 @@
           "event": "UPDATE",
           "timing": "BEFORE",
           "statement": "EXECUTE FUNCTION set_updated_at()"
+        },
+        {
+          "table": "tasks",
+          "trigger": "bump_version",
+          "event": "UPDATE",
+          "timing": "BEFORE",
+          "statement": "EXECUTE FUNCTION bump_version()"
         },
         {
           "table": "tasks",
@@ -1744,10 +1851,10 @@
         },
         {
           "table": "tracker_entries",
-          "trigger": "set_updated_at",
-          "event": "INSERT",
+          "trigger": "bump_version",
+          "event": "UPDATE",
           "timing": "BEFORE",
-          "statement": "EXECUTE FUNCTION set_updated_at()"
+          "statement": "EXECUTE FUNCTION bump_version()"
         },
         {
           "table": "tracker_entries",
@@ -1757,7 +1864,7 @@
           "statement": "EXECUTE FUNCTION set_updated_at()"
         },
         {
-          "table": "tracker_metrics",
+          "table": "tracker_entries",
           "trigger": "set_updated_at",
           "event": "INSERT",
           "timing": "BEFORE",
@@ -1765,8 +1872,22 @@
         },
         {
           "table": "tracker_metrics",
+          "trigger": "bump_version",
+          "event": "UPDATE",
+          "timing": "BEFORE",
+          "statement": "EXECUTE FUNCTION bump_version()"
+        },
+        {
+          "table": "tracker_metrics",
           "trigger": "set_updated_at",
           "event": "UPDATE",
+          "timing": "BEFORE",
+          "statement": "EXECUTE FUNCTION set_updated_at()"
+        },
+        {
+          "table": "tracker_metrics",
+          "trigger": "set_updated_at",
+          "event": "INSERT",
           "timing": "BEFORE",
           "statement": "EXECUTE FUNCTION set_updated_at()"
         }

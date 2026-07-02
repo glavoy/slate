@@ -9,6 +9,15 @@ class LocalDatabase {
 
   static final instance = LocalDatabase._();
 
+  /// Isolated in-memory database for tests (bypasses the singleton).
+  factory LocalDatabase.inMemory() {
+    final local = LocalDatabase._();
+    local._db = sqlite3.openInMemory();
+    local.db.execute('PRAGMA foreign_keys = ON;');
+    local._createSchema();
+    return local;
+  }
+
   Database? _db;
 
   Database get db {
@@ -55,7 +64,8 @@ class LocalDatabase {
         sync_status TEXT NOT NULL DEFAULT 'synced',
         last_synced_at TEXT,
         client_modified_at TEXT NOT NULL,
-        pending_delete INTEGER NOT NULL DEFAULT 0
+        pending_delete INTEGER NOT NULL DEFAULT 0,
+        server_version INTEGER
       );
     ''');
 
@@ -73,7 +83,8 @@ class LocalDatabase {
         sync_status TEXT NOT NULL DEFAULT 'synced',
         last_synced_at TEXT,
         client_modified_at TEXT NOT NULL,
-        pending_delete INTEGER NOT NULL DEFAULT 0
+        pending_delete INTEGER NOT NULL DEFAULT 0,
+        server_version INTEGER
       );
     ''');
 
@@ -90,6 +101,7 @@ class LocalDatabase {
         last_synced_at TEXT,
         client_modified_at TEXT NOT NULL,
         pending_delete INTEGER NOT NULL DEFAULT 0,
+        server_version INTEGER,
         UNIQUE(user_id, entry_date)
       );
     ''');
@@ -103,7 +115,8 @@ class LocalDatabase {
         sync_status TEXT NOT NULL DEFAULT 'synced',
         last_synced_at TEXT,
         client_modified_at TEXT NOT NULL,
-        pending_delete INTEGER NOT NULL DEFAULT 0
+        pending_delete INTEGER NOT NULL DEFAULT 0,
+        server_version INTEGER
       );
     ''');
 
@@ -119,7 +132,8 @@ class LocalDatabase {
         sync_status TEXT NOT NULL DEFAULT 'synced',
         last_synced_at TEXT,
         client_modified_at TEXT NOT NULL,
-        pending_delete INTEGER NOT NULL DEFAULT 0
+        pending_delete INTEGER NOT NULL DEFAULT 0,
+        server_version INTEGER
       );
     ''');
 
@@ -137,10 +151,43 @@ class LocalDatabase {
         last_synced_at TEXT,
         client_modified_at TEXT NOT NULL,
         pending_delete INTEGER NOT NULL DEFAULT 0,
+        server_version INTEGER,
         UNIQUE(metric_id, user_id, recorded_at)
       );
     ''');
 
+    _migrateSchema();
+  }
+
+  static const _syncedTables = [
+    'tasks',
+    'notes',
+    'journal_entries',
+    'simple_list',
+    'tracker_metrics',
+    'tracker_entries',
+  ];
+
+  /// Adds columns that CREATE TABLE IF NOT EXISTS won't add to pre-existing
+  /// tables. Detection is by PRAGMA so the migration is idempotent. When
+  /// server_version is first added, the pull high-water marks are cleared to
+  /// force one full re-pull that backfills it from the server.
+  void _migrateSchema() {
+    var addedServerVersion = false;
+    for (final table in _syncedTables) {
+      final columns = select('PRAGMA table_info($table)')
+          .map((row) => row['name'] as String)
+          .toSet();
+      if (!columns.contains('server_version')) {
+        execute('ALTER TABLE $table ADD COLUMN server_version INTEGER');
+        addedServerVersion = true;
+      }
+    }
+    if (addedServerVersion) {
+      for (final table in _syncedTables) {
+        deleteMeta('pull_hwm_$table');
+      }
+    }
   }
 
   List<Map<String, Object?>> select(
