@@ -44,6 +44,40 @@ Document _documentFromContent(String content) {
   return Document()..insert(0, content);
 }
 
+/// Deletes a non-collapsed selection directly through the Quill controller
+/// instead of flutter_quill's plain-text diff pipeline
+/// (`TextEditingValue.replaced` → `getDiff` → `replaceTextWithEmbeds`), which
+/// can leave the caret past the end of the document after a full-document
+/// delete and desync the IME state — after which delete/format keystrokes
+/// silently stop working. Registered above the editor so flutter_quill's
+/// `Action.overridable` wrappers defer to it; collapsed-cursor deletes are
+/// delegated back to the quill default via [callingAction] (preserving its
+/// backspace style-memory behavior).
+class SelectionSafeDeleteAction<T extends DirectionalTextEditingIntent>
+    extends Action<T> {
+  SelectionSafeDeleteAction(this.controller);
+
+  final QuillController controller;
+
+  @override
+  Object? invoke(T intent) {
+    final selection = controller.selection;
+    if (selection.isValid && !selection.isCollapsed) {
+      controller.replaceText(
+        selection.start,
+        selection.end - selection.start,
+        '',
+        TextSelection.collapsed(offset: selection.start),
+      );
+      return null;
+    }
+    return callingAction?.invoke(intent);
+  }
+
+  @override
+  bool get isActionEnabled => true;
+}
+
 /// Bridge so the AppBar can invoke pane-level actions (focus title, confirm
 /// delete) without holding a GlobalKey. A generation counter prevents a newly
 /// registered pane from being accidentally unregistered by an outgoing pane.
@@ -99,9 +133,12 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
   final _scrollController = ScrollController();
   Timer? _debounce;
 
+  late final Map<Type, Action<Intent>> _deleteOverrides;
+
   String _lastSavedTitle = '';
   String _lastSavedContent = '';
   bool _initialized = false;
+  bool _applyingRemote = false;
   bool _autoFocusRequested = false;
   bool _hasUnsavedEditorChanges = false;
   int _controllerGeneration = 0;
@@ -115,6 +152,15 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
   void initState() {
     super.initState();
     _quill = QuillController.basic();
+    _deleteOverrides = {
+      DeleteCharacterIntent: SelectionSafeDeleteAction<DeleteCharacterIntent>(
+        _quill,
+      ),
+      DeleteToNextWordBoundaryIntent:
+          SelectionSafeDeleteAction<DeleteToNextWordBoundaryIntent>(_quill),
+      DeleteToLineBreakIntent:
+          SelectionSafeDeleteAction<DeleteToLineBreakIntent>(_quill),
+    };
     _titleController = TextEditingController();
     _titleController.addListener(_onTitleChanged);
     _quill.addListener(_onQuillChanged);
@@ -161,9 +207,13 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
 
   bool get _hasFocus => _editorFocusNode.hasFocus || _titleFocusNode.hasFocus;
 
-  void _onTitleChanged() => _scheduleSave();
+  void _onTitleChanged() {
+    if (_applyingRemote) return;
+    _scheduleSave();
+  }
+
   void _onQuillChanged() {
-    if (!_initialized) return;
+    if (!_initialized || _applyingRemote) return;
     // QuillController fires on selection changes too; gate on dirty.
     if (_isDirty) _scheduleSave();
   }
@@ -292,8 +342,25 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
       return;
     }
 
-    _titleController.text = note.title;
-    _quill.document = _documentFromContent(note.content);
+    // Reseeding replaces the document, which resets the controller selection
+    // to offset 0. Preserve the caret (clamped to the new length) so a remote
+    // refresh doesn't yank the cursor away, and suppress the change listeners
+    // so applying remote content is never mistaken for a local edit.
+    _applyingRemote = true;
+    try {
+      final previousOffset = _quill.selection.baseOffset;
+      _titleController.text = note.title;
+      _quill.document = _documentFromContent(note.content);
+      final maxOffset = _quill.document.length - 1;
+      _quill.updateSelection(
+        TextSelection.collapsed(
+          offset: previousOffset.clamp(0, maxOffset < 0 ? 0 : maxOffset),
+        ),
+        ChangeSource.local,
+      );
+    } finally {
+      _applyingRemote = false;
+    }
     _lastSavedTitle = note.title;
     _lastSavedContent = _serializedContent;
     _lastAppliedRemoteUpdate = note.updatedAt;
@@ -341,38 +408,45 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
             ),
             const Divider(height: 1),
             Expanded(
-              child: QuillEditor(
-                controller: _quill,
-                focusNode: _editorFocusNode,
-                scrollController: _scrollController,
-                config: QuillEditorConfig(
-                  placeholder: 'Start writing…',
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-                  expands: true,
-                  scrollable: true,
-                  autoFocus: false,
-                  customStyles: DefaultStyles(
-                    paragraph: DefaultTextBlockStyle(
-                      (theme.textTheme.bodyLarge ??
-                              const TextStyle(fontSize: 16))
-                          .copyWith(height: 1.25),
-                      const HorizontalSpacing(0, 0),
-                      const VerticalSpacing(0, 0),
-                      const VerticalSpacing(0, 0),
-                      null,
-                    ),
-                    h2: DefaultTextBlockStyle(
-                      (theme.textTheme.bodyLarge ??
-                              const TextStyle(fontSize: 16))
-                          .copyWith(
-                            fontSize: 20,
-                            fontWeight: FontWeight.w600,
-                            height: 1.25,
-                          ),
-                      const HorizontalSpacing(0, 0),
-                      const VerticalSpacing(6, 0),
-                      const VerticalSpacing(0, 0),
-                      null,
+              // flutter_quill's keyboard actions are Action.overridable and
+              // look up the tree for same-typed intents, so this hands every
+              // delete path (Shortcuts and macOS performSelector) to
+              // SelectionSafeDeleteAction.
+              child: Actions(
+                actions: _deleteOverrides,
+                child: QuillEditor(
+                  controller: _quill,
+                  focusNode: _editorFocusNode,
+                  scrollController: _scrollController,
+                  config: QuillEditorConfig(
+                    placeholder: 'Start writing…',
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                    expands: true,
+                    scrollable: true,
+                    autoFocus: false,
+                    customStyles: DefaultStyles(
+                      paragraph: DefaultTextBlockStyle(
+                        (theme.textTheme.bodyLarge ??
+                                const TextStyle(fontSize: 16))
+                            .copyWith(height: 1.25),
+                        const HorizontalSpacing(0, 0),
+                        const VerticalSpacing(0, 0),
+                        const VerticalSpacing(0, 0),
+                        null,
+                      ),
+                      h2: DefaultTextBlockStyle(
+                        (theme.textTheme.bodyLarge ??
+                                const TextStyle(fontSize: 16))
+                            .copyWith(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w600,
+                              height: 1.25,
+                            ),
+                        const HorizontalSpacing(0, 0),
+                        const VerticalSpacing(6, 0),
+                        const VerticalSpacing(0, 0),
+                        null,
+                      ),
                     ),
                   ),
                 ),
@@ -437,8 +511,9 @@ class _NoteFormatToolbar extends StatelessWidget {
   /// values (checked + unchecked). Treat either as active so a single tap on a
   /// checked line removes the list instead of just unchecking it.
   void _toggleCheckbox() {
-    final current =
-        controller.getSelectionStyle().attributes[Attribute.list.key];
+    final current = controller
+        .getSelectionStyle()
+        .attributes[Attribute.list.key];
     final isCheckbox =
         current?.value == Attribute.unchecked.value ||
         current?.value == Attribute.checked.value;
@@ -491,18 +566,16 @@ class _NoteFormatToolbar extends StatelessWidget {
                     tooltip: 'Bold',
                     active: isBold,
                     textStyle: const TextStyle(fontWeight: FontWeight.bold),
-                    onPressed: () => _withFocus(
-                      () => _toggleInline(Attribute.bold),
-                    ),
+                    onPressed: () =>
+                        _withFocus(() => _toggleInline(Attribute.bold)),
                   ),
                   _ToggleTextButton(
                     label: 'I',
                     tooltip: 'Italic',
                     active: isItalic,
                     textStyle: const TextStyle(fontStyle: FontStyle.italic),
-                    onPressed: () => _withFocus(
-                      () => _toggleInline(Attribute.italic),
-                    ),
+                    onPressed: () =>
+                        _withFocus(() => _toggleInline(Attribute.italic)),
                   ),
                   _ToggleTextButton(
                     label: 'U',
@@ -511,9 +584,8 @@ class _NoteFormatToolbar extends StatelessWidget {
                     textStyle: const TextStyle(
                       decoration: TextDecoration.underline,
                     ),
-                    onPressed: () => _withFocus(
-                      () => _toggleInline(Attribute.underline),
-                    ),
+                    onPressed: () =>
+                        _withFocus(() => _toggleInline(Attribute.underline)),
                   ),
                   const SizedBox(width: 8),
                   _ToggleTextButton(
@@ -537,17 +609,15 @@ class _NoteFormatToolbar extends StatelessWidget {
                     icon: Icons.format_list_bulleted,
                     tooltip: 'Bullet list',
                     active: isBullet,
-                    onPressed: () => _withFocus(
-                      () => _toggleBlock(Attribute.ul),
-                    ),
+                    onPressed: () =>
+                        _withFocus(() => _toggleBlock(Attribute.ul)),
                   ),
                   _ToggleIconButton(
                     icon: Icons.format_list_numbered,
                     tooltip: 'Numbered list',
                     active: isNumbered,
-                    onPressed: () => _withFocus(
-                      () => _toggleBlock(Attribute.ol),
-                    ),
+                    onPressed: () =>
+                        _withFocus(() => _toggleBlock(Attribute.ol)),
                   ),
                   _ToggleIconButton(
                     icon: Icons.check_box_outlined,

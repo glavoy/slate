@@ -16,6 +16,7 @@ class JournalScreen extends ConsumerStatefulWidget {
 
 class _JournalScreenState extends ConsumerState<JournalScreen> {
   final _todayController = TextEditingController();
+  final _todayFocusNode = FocusNode();
   Timer? _debounce;
   String _lastSavedToday = '';
   bool _todayInitialized = false;
@@ -25,10 +26,19 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
   static const _debounceDuration = Duration(milliseconds: 1200);
 
   @override
-  void dispose() {
+  void deactivate() {
+    // Flush here rather than in dispose: ref is no longer usable once the
+    // widget is unmounted (Riverpod throws and the last edit would be lost).
     _debounce?.cancel();
     _flushTodayIfDirty();
+    super.deactivate();
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
     _todayController.dispose();
+    _todayFocusNode.dispose();
     super.dispose();
   }
 
@@ -62,7 +72,9 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
       return;
     }
 
-    if (todayEntry == null || _isTodayDirty) return;
+    // Same rationale as the note editor's _hasFocus guard: never rewrite the
+    // field out from under an actively editing user.
+    if (todayEntry == null || _isTodayDirty || _todayFocusNode.hasFocus) return;
     if (_lastAppliedTodayRemoteUpdate != null &&
         !todayEntry.updatedAt.isAfter(_lastAppliedTodayRemoteUpdate!)) {
       return;
@@ -168,6 +180,7 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
           const SizedBox(height: 8),
           TextField(
             controller: _todayController,
+            focusNode: _todayFocusNode,
             maxLines: null,
             minLines: 4,
             keyboardType: TextInputType.multiline,

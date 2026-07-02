@@ -21,25 +21,43 @@ class SimpleListSection extends ConsumerStatefulWidget {
 
 class _SimpleListSectionState extends ConsumerState<SimpleListSection> {
   final _controller = _QuickListController();
+  final _focusNode = FocusNode();
   Timer? _debounce;
   String _lastSavedContent = '';
   DateTime _lastLocalEdit = DateTime.fromMillisecondsSinceEpoch(0);
   bool _initialized = false;
 
+  bool get _isDirty => _initialized && _controller.text != _lastSavedContent;
+
+  @override
+  void deactivate() {
+    // Flush here rather than in dispose: ref is no longer usable once the
+    // widget is unmounted, and an edit inside the debounce window would
+    // otherwise be lost.
+    _debounce?.cancel();
+    _flushIfDirty();
+    super.deactivate();
+  }
+
   @override
   void dispose() {
     _debounce?.cancel();
     _controller.dispose();
+    _focusNode.dispose();
     super.dispose();
+  }
+
+  void _flushIfDirty() {
+    if (!_isDirty) return;
+    final value = _controller.text;
+    _lastSavedContent = value;
+    ref.read(simpleListNotifierProvider.notifier).save(value);
   }
 
   void _onChanged(String value) {
     _lastLocalEdit = DateTime.now();
     _debounce?.cancel();
-    _debounce = Timer(_debounceDuration, () {
-      _lastSavedContent = value;
-      ref.read(simpleListNotifierProvider.notifier).save(value);
-    });
+    _debounce = Timer(_debounceDuration, _flushIfDirty);
   }
 
   void _initialize(String content) {
@@ -53,12 +71,21 @@ class _SimpleListSectionState extends ConsumerState<SimpleListSection> {
     remoteContent = _normalizeBullets(remoteContent);
     if (remoteContent == _controller.text) return;
     if (remoteContent == _lastSavedContent) return;
+    // Never rewrite the field while the user is in it or has unsaved edits —
+    // a sync pass fires after every push/pull and used to snap the caret to
+    // the end of the text right before the user started typing.
+    if (_focusNode.hasFocus) return;
+    if (_isDirty || (_debounce?.isActive ?? false)) return;
     if (DateTime.now().difference(_lastLocalEdit) < _idleBeforeRemoteSync) {
       return;
     }
+    final cursor = _controller.selection.baseOffset.clamp(
+      0,
+      remoteContent.length,
+    );
     _controller.value = TextEditingValue(
       text: remoteContent,
-      selection: TextSelection.collapsed(offset: remoteContent.length),
+      selection: TextSelection.collapsed(offset: cursor),
     );
     _lastSavedContent = remoteContent;
   }
@@ -102,6 +129,7 @@ class _SimpleListSectionState extends ConsumerState<SimpleListSection> {
               child: SingleChildScrollView(
                 child: TextField(
                   controller: _controller,
+                  focusNode: _focusNode,
                   maxLines: null,
                   minLines: 1,
                   keyboardType: TextInputType.multiline,
