@@ -51,6 +51,10 @@ flutter_launcher_icons:
   macos:
     generate: true
     image_path: "assets/icon/slate.png"
+  windows:
+    generate: true
+    image_path: "assets/icon/slate.png"
+    icon_size: 256
   image_path: "assets/icon/slate.png"
 
 flutter:
