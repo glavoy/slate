@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_quill/flutter_quill.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:slate/models/note.dart';
 import 'package:slate/widgets/note_editor_pane.dart';
 
 /// Pumps a QuillEditor wrapped in the same delete-override Actions the note
@@ -63,6 +64,15 @@ void _selectAll(QuillController controller) {
     ChangeSource.local,
   );
 }
+
+Note _note({String title = '', String content = ''}) => Note(
+  id: 'note-1',
+  userId: 'user-1',
+  title: title,
+  content: content,
+  createdAt: DateTime.utc(2026),
+  updatedAt: DateTime.utc(2026),
+);
 
 void main() {
   group('noteBodyPreview', () {
@@ -137,6 +147,81 @@ void main() {
       final attrs = reloaded.document.collectStyle(0, 5).attributes;
       expect(attrs.containsKey('bold'), isTrue);
     });
+  });
+
+  group('noteListDisplayText', () {
+    test('uses an explicit title and the first body line as preview', () {
+      final display = noteListDisplayText(
+        _note(title: '  Project plan  ', content: 'First step\nSecond step'),
+      );
+
+      expect(display.title, 'Project plan');
+      expect(display.preview, 'First step');
+    });
+
+    test('derives a missing title and advances preview to the next line', () {
+      final display = noteListDisplayText(
+        _note(content: '\n  Meeting notes  \n\nDiscuss schedule\nFollow up'),
+      );
+
+      expect(display.title, 'Meeting notes');
+      expect(display.preview, 'Discuss schedule');
+    });
+
+    test('does not duplicate a one-line derived title in the preview', () {
+      final display = noteListDisplayText(_note(content: 'Only line'));
+
+      expect(display.title, 'Only line');
+      expect(display.preview, 'No content');
+    });
+
+    test('uses untitled and no-content labels for an empty note', () {
+      final display = noteListDisplayText(_note());
+
+      expect(display.title, '(Untitled)');
+      expect(display.preview, 'No content');
+    });
+  });
+
+  testWidgets('title Next action focuses the body and preserves its cursor', (
+    tester,
+  ) async {
+    final controller = QuillController.basic();
+    addTearDown(controller.dispose);
+    controller.document.insert(0, 'Existing body');
+    controller.updateSelection(
+      const TextSelection.collapsed(offset: 8),
+      ChangeSource.local,
+    );
+    final titleFocusNode = FocusNode();
+    addTearDown(titleFocusNode.dispose);
+    final bodyFocusNode = FocusNode();
+    addTearDown(bodyFocusNode.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Column(
+            children: [
+              TextField(
+                focusNode: titleFocusNode,
+                textInputAction: TextInputAction.next,
+                onSubmitted: (_) => focusQuillEditor(controller, bodyFocusNode),
+              ),
+              Focus(focusNode: bodyFocusNode, child: const SizedBox()),
+            ],
+          ),
+        ),
+      ),
+    );
+    titleFocusNode.requestFocus();
+    await tester.pump();
+
+    await tester.testTextInput.receiveAction(TextInputAction.next);
+    await tester.pump();
+
+    expect(bodyFocusNode.hasFocus, isTrue);
+    expect(controller.selection, const TextSelection.collapsed(offset: 8));
   });
 
   group('SelectionSafeDeleteAction', () {

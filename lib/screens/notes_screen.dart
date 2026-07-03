@@ -398,18 +398,11 @@ class _NoteListTile extends StatelessWidget {
     return dt.year != now.year ? '$m ${dt.day}, ${dt.year}' : '$m ${dt.day}';
   }
 
-  String _preview(Note note) {
-    final raw = noteBodyPreview(note.content).trim();
-    if (raw.isEmpty) return 'No content';
-    final line = raw.split('\n').first;
-    return line.length > 80 ? '${line.substring(0, 80)}…' : line;
-  }
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
-    final title = note.title.isEmpty ? '(Untitled)' : note.title;
+    final displayText = noteListDisplayText(note);
     final onSurface = isSelected ? cs.onPrimaryContainer : cs.onSurface;
 
     return Padding(
@@ -437,7 +430,7 @@ class _NoteListTile extends StatelessWidget {
                         children: [
                           Expanded(
                             child: Text(
-                              title,
+                              displayText.title,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: theme.textTheme.titleSmall?.copyWith(
@@ -457,7 +450,7 @@ class _NoteListTile extends StatelessWidget {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        _preview(note),
+                        displayText.preview,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: theme.textTheme.bodySmall?.copyWith(
@@ -598,7 +591,7 @@ class _TrashNoteTile extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
-    final title = note.title.isEmpty ? '(Untitled)' : note.title;
+    final title = noteListDisplayText(note).title;
     final deletedAt = note.deletedAt ?? DateTime.now();
 
     return Padding(

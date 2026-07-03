@@ -33,6 +33,30 @@ String noteBodyPreview(String content) {
   return content;
 }
 
+({String title, String preview}) noteListDisplayText(Note note) {
+  final explicitTitle = note.title.trim();
+  final bodyLines = noteBodyPreview(note.content)
+      .split('\n')
+      .map((line) => line.trim())
+      .where((line) => line.isNotEmpty)
+      .toList();
+  final usesBodyTitle = explicitTitle.isEmpty && bodyLines.isNotEmpty;
+  final title = explicitTitle.isNotEmpty
+      ? explicitTitle
+      : usesBodyTitle
+      ? bodyLines.first
+      : '(Untitled)';
+  final previewIndex = usesBodyTitle ? 1 : 0;
+  final preview = bodyLines.length > previewIndex
+      ? bodyLines[previewIndex]
+      : 'No content';
+
+  return (
+    title: title,
+    preview: preview.length > 80 ? '${preview.substring(0, 80)}…' : preview,
+  );
+}
+
 Document _documentFromContent(String content) {
   if (content.trim().isEmpty) return Document();
   try {
@@ -43,6 +67,24 @@ Document _documentFromContent(String content) {
   }
   // Legacy notes seed as a single plain-text insert so they at least show up.
   return Document()..insert(0, content);
+}
+
+void focusQuillEditor(QuillController controller, FocusNode editorFocusNode) {
+  if (!editorFocusNode.canRequestFocus) return;
+
+  final selection = controller.selection;
+  final maxOffset = controller.document.length - 1;
+  final safeMaxOffset = maxOffset < 0 ? 0 : maxOffset;
+  final safeSelection = selection.isValid
+      ? selection.copyWith(
+          baseOffset: selection.baseOffset.clamp(0, safeMaxOffset),
+          extentOffset: selection.extentOffset.clamp(0, safeMaxOffset),
+        )
+      : const TextSelection.collapsed(offset: 0);
+  if (safeSelection != selection) {
+    controller.updateSelection(safeSelection, ChangeSource.local);
+  }
+  editorFocusNode.requestFocus();
 }
 
 bool deleteExpandedQuillSelection(QuillController controller) {
@@ -305,6 +347,14 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
     });
   }
 
+  void _focusEditorFromTitle() {
+    focusQuillEditor(_quill, _editorFocusNode);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      focusQuillEditor(_quill, _editorFocusNode);
+    });
+  }
+
   Future<void> _confirmDelete(BuildContext context) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -409,7 +459,7 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
         return Column(
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 2),
               child: TextField(
                 controller: _titleController,
                 focusNode: _titleFocusNode,
@@ -427,10 +477,9 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
                   contentPadding: EdgeInsets.zero,
                 ),
                 textInputAction: TextInputAction.next,
-                onSubmitted: (_) => _editorFocusNode.requestFocus(),
+                onSubmitted: (_) => _focusEditorFromTitle(),
               ),
             ),
-            const Divider(height: 1),
             Expanded(
               // flutter_quill's keyboard actions are Action.overridable and
               // look up the tree for same-typed intents, so this hands every
@@ -444,7 +493,7 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
                   scrollController: _scrollController,
                   config: QuillEditorConfig(
                     placeholder: 'Start writing…',
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
                     expands: true,
                     scrollable: true,
                     autoFocus: false,
