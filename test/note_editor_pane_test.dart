@@ -11,6 +11,8 @@ import 'package:slate/widgets/note_editor_pane.dart';
 Future<QuillController> pumpEditorWithDeleteOverrides(
   WidgetTester tester, {
   String text = 'Hello world',
+  bool includeDeleteOverrides = true,
+  bool useHardwareDeleteHandler = false,
 }) async {
   final controller = QuillController.basic();
   addTearDown(controller.dispose);
@@ -21,10 +23,20 @@ Future<QuillController> pumpEditorWithDeleteOverrides(
 
   controller.document.insert(0, text);
 
-  await tester.pumpWidget(
-    MaterialApp(
-      home: Scaffold(
-        body: Actions(
+  final editor = QuillEditor(
+    controller: controller,
+    focusNode: focusNode,
+    scrollController: scrollController,
+    config: QuillEditorConfig(
+      autoFocus: false,
+      // ignore: experimental_member_use
+      onKeyPressed: useHardwareDeleteHandler
+          ? (event, _) => handleSelectionSafeDeleteKey(controller, event)
+          : null,
+    ),
+  );
+  final body = includeDeleteOverrides
+      ? Actions(
           actions: {
             DeleteCharacterIntent:
                 SelectionSafeDeleteAction<DeleteCharacterIntent>(controller),
@@ -35,16 +47,11 @@ Future<QuillController> pumpEditorWithDeleteOverrides(
             DeleteToLineBreakIntent:
                 SelectionSafeDeleteAction<DeleteToLineBreakIntent>(controller),
           },
-          child: QuillEditor(
-            controller: controller,
-            focusNode: focusNode,
-            scrollController: scrollController,
-            config: const QuillEditorConfig(autoFocus: false),
-          ),
-        ),
-      ),
-    ),
-  );
+          child: editor,
+        )
+      : editor;
+
+  await tester.pumpWidget(MaterialApp(home: Scaffold(body: body)));
   focusNode.requestFocus();
   await tester.pump();
   return controller;
@@ -52,10 +59,7 @@ Future<QuillController> pumpEditorWithDeleteOverrides(
 
 void _selectAll(QuillController controller) {
   controller.updateSelection(
-    TextSelection(
-      baseOffset: 0,
-      extentOffset: controller.document.length,
-    ),
+    TextSelection(baseOffset: 0, extentOffset: controller.document.length),
     ChangeSource.local,
   );
 }
@@ -65,7 +69,10 @@ void main() {
     test('extracts plain text from a Quill Delta JSON', () {
       final delta = jsonEncode([
         {'insert': 'Hello '},
-        {'insert': 'world', 'attributes': {'bold': true}},
+        {
+          'insert': 'world',
+          'attributes': {'bold': true},
+        },
         {'insert': '\nSecond line\n'},
       ]);
       expect(noteBodyPreview(delta), 'Hello world\nSecond line\n');
@@ -106,7 +113,10 @@ void main() {
       );
       addTearDown(reloaded.dispose);
 
-      expect(reloaded.document.toPlainText(), controller.document.toPlainText());
+      expect(
+        reloaded.document.toPlainText(),
+        controller.document.toPlainText(),
+      );
     });
 
     test('content with formatting survives a round trip', () {
@@ -124,14 +134,44 @@ void main() {
       addTearDown(reloaded.dispose);
 
       expect(reloaded.document.toPlainText().trim(), 'Hello');
-      final attrs = reloaded.document
-          .collectStyle(0, 5)
-          .attributes;
+      final attrs = reloaded.document.collectStyle(0, 5).attributes;
       expect(attrs.containsKey('bold'), isTrue);
     });
   });
 
   group('SelectionSafeDeleteAction', () {
+    testWidgets('hardware Delete removes a full-document selection before '
+        'the platform text-input pipeline', (tester) async {
+      final controller = await pumpEditorWithDeleteOverrides(
+        tester,
+        includeDeleteOverrides: false,
+        useHardwareDeleteHandler: true,
+      );
+
+      _selectAll(controller);
+      await tester.sendKeyEvent(LogicalKeyboardKey.delete);
+      await tester.pump();
+
+      expect(controller.document.toPlainText(), '\n');
+      expect(controller.selection, const TextSelection.collapsed(offset: 0));
+    });
+
+    testWidgets('hardware Backspace removes a full-document selection before '
+        'the platform text-input pipeline', (tester) async {
+      final controller = await pumpEditorWithDeleteOverrides(
+        tester,
+        includeDeleteOverrides: false,
+        useHardwareDeleteHandler: true,
+      );
+
+      _selectAll(controller);
+      await tester.sendKeyEvent(LogicalKeyboardKey.backspace);
+      await tester.pump();
+
+      expect(controller.document.toPlainText(), '\n');
+      expect(controller.selection, const TextSelection.collapsed(offset: 0));
+    });
+
     testWidgets('backspace deletes a full-document selection and leaves the '
         'caret in bounds', (tester) async {
       final controller = await pumpEditorWithDeleteOverrides(tester);
@@ -144,8 +184,9 @@ void main() {
       expect(controller.selection, const TextSelection.collapsed(offset: 0));
     });
 
-    testWidgets('backspace deletes a near-full selection, keeping the tail',
-        (tester) async {
+    testWidgets('backspace deletes a near-full selection, keeping the tail', (
+      tester,
+    ) async {
       final controller = await pumpEditorWithDeleteOverrides(tester);
 
       controller.updateSelection(
@@ -159,34 +200,37 @@ void main() {
       expect(controller.selection, const TextSelection.collapsed(offset: 0));
     });
 
-    testWidgets('editor stays usable across repeated select-all delete cycles',
-        (tester) async {
-      final controller = await pumpEditorWithDeleteOverrides(tester);
+    testWidgets(
+      'editor stays usable across repeated select-all delete cycles',
+      (tester) async {
+        final controller = await pumpEditorWithDeleteOverrides(tester);
 
-      _selectAll(controller);
-      await tester.sendKeyEvent(LogicalKeyboardKey.backspace);
-      await tester.pump();
-      expect(controller.document.toPlainText(), '\n');
+        _selectAll(controller);
+        await tester.sendKeyEvent(LogicalKeyboardKey.backspace);
+        await tester.pump();
+        expect(controller.document.toPlainText(), '\n');
 
-      controller.replaceText(
-        0,
-        0,
-        'Second round',
-        const TextSelection.collapsed(offset: 12),
-      );
-      await tester.pump();
-      expect(controller.document.toPlainText(), 'Second round\n');
+        controller.replaceText(
+          0,
+          0,
+          'Second round',
+          const TextSelection.collapsed(offset: 12),
+        );
+        await tester.pump();
+        expect(controller.document.toPlainText(), 'Second round\n');
 
-      _selectAll(controller);
-      await tester.sendKeyEvent(LogicalKeyboardKey.backspace);
-      await tester.pump();
+        _selectAll(controller);
+        await tester.sendKeyEvent(LogicalKeyboardKey.backspace);
+        await tester.pump();
 
-      expect(controller.document.toPlainText(), '\n');
-      expect(controller.selection, const TextSelection.collapsed(offset: 0));
-    });
+        expect(controller.document.toPlainText(), '\n');
+        expect(controller.selection, const TextSelection.collapsed(offset: 0));
+      },
+    );
 
-    testWidgets('word-boundary delete (ctrl+backspace) removes a selection',
-        (tester) async {
+    testWidgets('word-boundary delete (ctrl+backspace) removes a selection', (
+      tester,
+    ) async {
       final controller = await pumpEditorWithDeleteOverrides(tester);
 
       _selectAll(controller);
@@ -206,8 +250,9 @@ void main() {
         const TextSelection(baseOffset: 0, extentOffset: 5),
         ChangeSource.local,
       );
-      SelectionSafeDeleteAction<DeleteToLineBreakIntent>(controller)
-          .invoke(const DeleteToLineBreakIntent(forward: false));
+      SelectionSafeDeleteAction<DeleteToLineBreakIntent>(
+        controller,
+      ).invoke(const DeleteToLineBreakIntent(forward: false));
       await tester.pump();
 
       expect(controller.document.toPlainText(), ' world\n');

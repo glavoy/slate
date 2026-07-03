@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_quill/flutter_quill.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -44,6 +45,38 @@ Document _documentFromContent(String content) {
   return Document()..insert(0, content);
 }
 
+bool deleteExpandedQuillSelection(QuillController controller) {
+  final selection = controller.selection;
+  if (!selection.isValid || selection.isCollapsed) return false;
+
+  controller.replaceText(
+    selection.start,
+    selection.end - selection.start,
+    '',
+    TextSelection.collapsed(offset: selection.start),
+  );
+  return true;
+}
+
+/// Handles desktop delete keys before they enter the platform text-input
+/// pipeline. This complements [SelectionSafeDeleteAction]: Windows delivers
+/// these keys through the editor's hardware-key callback, while macOS can also
+/// deliver them through native selector intents.
+KeyEventResult? handleSelectionSafeDeleteKey(
+  QuillController controller,
+  KeyEvent event,
+) {
+  if (event is! KeyDownEvent && event is! KeyRepeatEvent) return null;
+  if (event.logicalKey != LogicalKeyboardKey.backspace &&
+      event.logicalKey != LogicalKeyboardKey.delete) {
+    return null;
+  }
+
+  return deleteExpandedQuillSelection(controller)
+      ? KeyEventResult.handled
+      : null;
+}
+
 /// Deletes a non-collapsed selection directly through the Quill controller
 /// instead of flutter_quill's plain-text diff pipeline
 /// (`TextEditingValue.replaced` → `getDiff` → `replaceTextWithEmbeds`), which
@@ -61,16 +94,7 @@ class SelectionSafeDeleteAction<T extends DirectionalTextEditingIntent>
 
   @override
   Object? invoke(T intent) {
-    final selection = controller.selection;
-    if (selection.isValid && !selection.isCollapsed) {
-      controller.replaceText(
-        selection.start,
-        selection.end - selection.start,
-        '',
-        TextSelection.collapsed(offset: selection.start),
-      );
-      return null;
-    }
+    if (deleteExpandedQuillSelection(controller)) return null;
     return callingAction?.invoke(intent);
   }
 
@@ -424,6 +448,11 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
                     expands: true,
                     scrollable: true,
                     autoFocus: false,
+                    // flutter_quill exposes this as its desktop hardware-key
+                    // interception point, but still marks the API experimental.
+                    // ignore: experimental_member_use
+                    onKeyPressed: (event, _) =>
+                        handleSelectionSafeDeleteKey(_quill, event),
                     customStyles: DefaultStyles(
                       paragraph: DefaultTextBlockStyle(
                         (theme.textTheme.bodyLarge ??
