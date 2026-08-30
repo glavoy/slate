@@ -314,9 +314,7 @@ class _MetricCardContent extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 12),
-        Wrap(
-          spacing: 24,
-          runSpacing: 12,
+        TrackerMetricStatsGrid(
           children: [
             _TrackerStatBlock(
               label: 'Last logged',
@@ -376,6 +374,33 @@ class _MetricCardContent extends StatelessWidget {
   }
 }
 
+class TrackerMetricStatsGrid extends StatelessWidget {
+  final List<Widget> children;
+
+  const TrackerMetricStatsGrid({super.key, required this.children});
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final columnCount = constraints.maxWidth >= 600 ? 4 : 2;
+        const spacing = 12.0;
+        final itemWidth =
+            (constraints.maxWidth - (columnCount - 1) * spacing) / columnCount;
+
+        return Wrap(
+          spacing: spacing,
+          runSpacing: 14,
+          children: [
+            for (final child in children)
+              SizedBox(width: itemWidth, child: child),
+          ],
+        );
+      },
+    );
+  }
+}
+
 class _TrackerStatBlock extends StatelessWidget {
   final String label;
   final String value;
@@ -391,32 +416,29 @@ class _TrackerStatBlock extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: 132,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: colorScheme.onSurface.withValues(alpha: 0.58),
-              fontWeight: FontWeight.w600,
-            ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.labelSmall?.copyWith(
+            color: colorScheme.onSurface.withValues(alpha: 0.58),
+            fontWeight: FontWeight.w600,
           ),
-          const SizedBox(height: 3),
-          Text(
-            value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: colorScheme.onSurface.withValues(alpha: 0.86),
-              fontWeight: FontWeight.w600,
-            ),
+        ),
+        const SizedBox(height: 3),
+        Text(
+          value,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: colorScheme.onSurface.withValues(alpha: 0.86),
+            fontWeight: FontWeight.w600,
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
