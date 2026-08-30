@@ -61,7 +61,7 @@ void main() {
       findsOneWidget,
     );
     expect(
-      find.byKey(const Key('tracker_chart_desktop_control_scroll')),
+      find.byKey(const Key('tracker_chart_desktop_controls')),
       findsNothing,
     );
     expect(find.text('Line'), findsOneWidget);
@@ -99,9 +99,12 @@ void main() {
   });
 
   testWidgets('wide layout retains the desktop control strip', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1200, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
     await _pumpControls(
       tester,
-      width: 800,
+      width: 1000,
       onChartTypeChanged: (_) {},
       onPeriodChanged: (_) {},
       onPickStart: () {},
@@ -113,9 +116,28 @@ void main() {
       findsNothing,
     );
     expect(
-      find.byKey(const Key('tracker_chart_desktop_control_scroll')),
+      find.byKey(const Key('tracker_chart_desktop_controls')),
       findsOneWidget,
     );
+  });
+
+  testWidgets('intermediate widths retain the stacked controls', (
+    tester,
+  ) async {
+    await _pumpControls(
+      tester,
+      width: 700,
+      onChartTypeChanged: (_) {},
+      onPeriodChanged: (_) {},
+      onPickStart: () {},
+      onPickEnd: () {},
+    );
+
+    expect(
+      find.byKey(const Key('tracker_chart_mobile_controls')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('tracker_chart_end_date')), findsOneWidget);
   });
 
   testWidgets('collapsed controls only show the expand button', (tester) async {

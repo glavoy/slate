@@ -10,6 +10,16 @@ const _showNotesQuickListKey = 'show_notes_quick_list';
 const _showCompletedTasksKey = 'show_completed_tasks';
 const _showTrackerSectionKey = 'show_tracker_section';
 const _showDailyLogSectionKey = 'show_daily_log_section';
+const _lastMainSectionKey = 'last_main_section';
+
+const defaultMainSectionName = 'tasks';
+const mainSectionNames = <String>{
+  'tasks',
+  'notes',
+  'tracker',
+  'dailyLog',
+  'settings',
+};
 
 enum DateFormatStyle {
   dayMonthShort('Mon Jan 5'),
@@ -152,9 +162,33 @@ class ShowDailyLogSectionNotifier extends _$ShowDailyLogSectionNotifier {
   }
 }
 
+@Riverpod(keepAlive: true)
+class LastMainSection extends _$LastMainSection {
+  @override
+  String build() => defaultMainSectionName;
+
+  Future<void> init() async {
+    final prefs = await SharedPreferences.getInstance();
+    final stored = prefs.getString(_lastMainSectionKey);
+    state = mainSectionNames.contains(stored)
+        ? stored!
+        : defaultMainSectionName;
+  }
+
+  Future<void> set(String section) async {
+    final value = mainSectionNames.contains(section)
+        ? section
+        : defaultMainSectionName;
+    state = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_lastMainSectionKey, value);
+  }
+}
+
 const dateFormatNotifierProvider = dateFormatProvider;
 const timeFormatNotifierProvider = timeFormatProvider;
 const showNotesQuickListNotifierProvider = showNotesQuickListProvider;
 const showCompletedTasksNotifierProvider = showCompletedTasksProvider;
 const showTrackerSectionNotifierProvider = showTrackerSectionProvider;
 const showDailyLogSectionNotifierProvider = showDailyLogSectionProvider;
+const lastMainSectionNotifierProvider = lastMainSectionProvider;

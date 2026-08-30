@@ -668,7 +668,8 @@ class _TrackerEntryRow extends StatelessWidget {
 
 enum TrackerChartType { line, bar }
 
-const double trackerChartPhoneBreakpoint = 600;
+/// The minimum width needed to show every chart control on one line.
+const double trackerChartSingleRowMinimumWidth = 820;
 
 class _TrackerChartPanel extends StatelessWidget {
   final TrackerChartType chartType;
@@ -898,8 +899,9 @@ class TrackerChartControls extends StatelessWidget {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final isPhone = constraints.maxWidth < trackerChartPhoneBreakpoint;
-        if (isPhone) return _mobileControls(context);
+        final useStackedControls =
+            constraints.maxWidth < trackerChartSingleRowMinimumWidth;
+        if (useStackedControls) return _mobileControls(context);
         return _desktopControls(context);
       },
     );
@@ -949,33 +951,24 @@ class TrackerChartControls extends StatelessWidget {
 
   Widget _desktopControls(BuildContext context) {
     return Row(
+      key: const Key('tracker_chart_desktop_controls'),
       children: [
-        Expanded(
-          child: SingleChildScrollView(
-            key: const Key('tracker_chart_desktop_control_scroll'),
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                _chartTypeSelector(context),
-                const SizedBox(width: 8),
-                _periodSelector(context),
-                const SizedBox(width: 8),
-                _ChartDateButton(
-                  key: const Key('tracker_chart_start_date'),
-                  label: 'Start',
-                  value: formatDate(startDate),
-                  onPressed: onPickStart,
-                ),
-                const SizedBox(width: 8),
-                _ChartDateButton(
-                  key: const Key('tracker_chart_end_date'),
-                  label: 'End',
-                  value: formatDate(endDate),
-                  onPressed: onPickEnd,
-                ),
-              ],
-            ),
-          ),
+        _chartTypeSelector(context),
+        const SizedBox(width: 8),
+        _periodSelector(context),
+        const SizedBox(width: 8),
+        _ChartDateButton(
+          key: const Key('tracker_chart_start_date'),
+          label: 'Start',
+          value: formatDate(startDate),
+          onPressed: onPickStart,
+        ),
+        const SizedBox(width: 8),
+        _ChartDateButton(
+          key: const Key('tracker_chart_end_date'),
+          label: 'End',
+          value: formatDate(endDate),
+          onPressed: onPickEnd,
         ),
         _expandButton(),
       ],

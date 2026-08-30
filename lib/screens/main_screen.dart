@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/settings_providers.dart';
@@ -9,6 +10,7 @@ import 'journal_screen.dart';
 import 'notes_screen.dart';
 import 'settings_screen.dart';
 import 'tracker_screen.dart';
+import '../widgets/android_exit_confirmation.dart';
 
 class MainScreen extends ConsumerStatefulWidget {
   const MainScreen({super.key});
@@ -23,7 +25,21 @@ class _MainScreenState extends ConsumerState<MainScreen> {
   @override
   void initState() {
     super.initState();
+    _selectedSection = _sectionFromName(
+      ref.read(lastMainSectionNotifierProvider),
+    );
     SyncService.instance.syncSoon();
+  }
+
+  _SectionId _sectionFromName(String name) => _SectionId.values.firstWhere(
+    (section) => section.name == name,
+    orElse: () => _SectionId.tasks,
+  );
+
+  void _selectSection(_SectionId section) {
+    if (_selectedSection == section) return;
+    setState(() => _selectedSection = section);
+    ref.read(lastMainSectionNotifierProvider.notifier).set(section.name);
   }
 
   static const _allMainDestinations = <_Destination>[
@@ -83,7 +99,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
     final visibleIds = destinations.map((d) => d.id).toSet();
     if (!visibleIds.contains(_selectedSection)) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) setState(() => _selectedSection = _SectionId.tasks);
+        if (mounted) _selectSection(_SectionId.tasks);
       });
     }
 
@@ -111,7 +127,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
                   ? null
                   : railSelectedIndex,
               onDestinationSelected: (i) =>
-                  setState(() => _selectedSection = mainDestinations[i].id),
+                  _selectSection(mainDestinations[i].id),
               labelType: NavigationRailLabelType.all,
               destinations: [
                 for (final d in mainDestinations)
@@ -145,9 +161,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
                                 : null,
                           ),
                           tooltip: _settingsDestination.label,
-                          onPressed: () => setState(
-                            () => _selectedSection = _SectionId.settings,
-                          ),
+                          onPressed: () => _selectSection(_SectionId.settings),
                         ),
                       ),
                     ],
@@ -162,12 +176,11 @@ class _MainScreenState extends ConsumerState<MainScreen> {
       );
     }
 
-    return Scaffold(
+    final scaffold = Scaffold(
       body: stack,
       bottomNavigationBar: NavigationBar(
         selectedIndex: selectedIndex,
-        onDestinationSelected: (i) =>
-            setState(() => _selectedSection = destinations[i].id),
+        onDestinationSelected: (i) => _selectSection(destinations[i].id),
         destinations: [
           for (final d in destinations)
             NavigationDestination(
@@ -177,6 +190,11 @@ class _MainScreenState extends ConsumerState<MainScreen> {
             ),
         ],
       ),
+    );
+    return AndroidExitConfirmation(
+      enabled: platform == TargetPlatform.android,
+      onExit: SystemNavigator.pop,
+      child: scaffold,
     );
   }
 }
