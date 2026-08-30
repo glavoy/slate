@@ -668,6 +668,8 @@ class _TrackerEntryRow extends StatelessWidget {
 
 enum TrackerChartType { line, bar }
 
+const double trackerChartPhoneBreakpoint = 600;
+
 class _TrackerChartPanel extends StatelessWidget {
   final TrackerChartType chartType;
   final TrackerChartPeriod period;
@@ -721,83 +723,18 @@ class _TrackerChartPanel extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: [
-                      SegmentedButton<TrackerChartType>(
-                        style: _compactSegmentedStyle(),
-                        segments: const [
-                          ButtonSegment(
-                            value: TrackerChartType.line,
-                            icon: Icon(Icons.show_chart, size: 18),
-                            label: Text('Line'),
-                          ),
-                          ButtonSegment(
-                            value: TrackerChartType.bar,
-                            icon: Icon(Icons.bar_chart, size: 18),
-                            label: Text('Bar'),
-                          ),
-                        ],
-                        selected: {chartType},
-                        onSelectionChanged: (selection) {
-                          onChartTypeChanged(selection.first);
-                        },
-                      ),
-                      const SizedBox(width: 8),
-                      SegmentedButton<TrackerChartPeriod>(
-                        style: _compactSegmentedStyle(),
-                        segments: const [
-                          ButtonSegment(
-                            value: TrackerChartPeriod.daily,
-                            label: Text('Daily'),
-                          ),
-                          ButtonSegment(
-                            value: TrackerChartPeriod.weekly,
-                            label: Text('Weekly'),
-                          ),
-                          ButtonSegment(
-                            value: TrackerChartPeriod.monthly,
-                            label: Text('Monthly'),
-                          ),
-                          ButtonSegment(
-                            value: TrackerChartPeriod.yearly,
-                            label: Text('Yearly'),
-                          ),
-                        ],
-                        selected: {period},
-                        onSelectionChanged: (selection) {
-                          onPeriodChanged(selection.first);
-                        },
-                      ),
-                      const SizedBox(width: 8),
-                      _ChartDateButton(
-                        label: 'Start',
-                        value: formatDate(startDate),
-                        onPressed: onPickStart,
-                      ),
-                      const SizedBox(width: 8),
-                      _ChartDateButton(
-                        label: 'End',
-                        value: formatDate(endDate),
-                        onPressed: onPickEnd,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              IconButton(
-                icon: Icon(
-                  expanded ? Icons.expand_less : Icons.expand_more,
-                ),
-                tooltip: expanded ? 'Hide chart' : 'Show chart',
-                visualDensity: VisualDensity.compact,
-                onPressed: onToggleExpanded,
-              ),
-            ],
+          TrackerChartControls(
+            chartType: chartType,
+            period: period,
+            startDate: startDate,
+            endDate: endDate,
+            formatDate: formatDate,
+            onChartTypeChanged: onChartTypeChanged,
+            onPeriodChanged: onPeriodChanged,
+            onPickStart: onPickStart,
+            onPickEnd: onPickEnd,
+            expanded: expanded,
+            onToggleExpanded: onToggleExpanded,
           ),
           AnimatedSize(
             duration: const Duration(milliseconds: 220),
@@ -907,16 +844,6 @@ class _TrackerChartPanel extends StatelessWidget {
     );
   }
 
-  ButtonStyle _compactSegmentedStyle() {
-    return ButtonStyle(
-      visualDensity: VisualDensity.compact,
-      padding: WidgetStateProperty.all(
-        const EdgeInsets.symmetric(horizontal: 10),
-      ),
-      textStyle: WidgetStateProperty.all(const TextStyle(fontSize: 13)),
-    );
-  }
-
   String _periodLabel(TrackerChartPeriod period) {
     switch (period) {
       case TrackerChartPeriod.daily:
@@ -931,15 +858,230 @@ class _TrackerChartPanel extends StatelessWidget {
   }
 }
 
+class TrackerChartControls extends StatelessWidget {
+  final TrackerChartType chartType;
+  final TrackerChartPeriod period;
+  final DateTime startDate;
+  final DateTime endDate;
+  final String Function(DateTime date) formatDate;
+  final ValueChanged<TrackerChartType> onChartTypeChanged;
+  final ValueChanged<TrackerChartPeriod> onPeriodChanged;
+  final VoidCallback onPickStart;
+  final VoidCallback onPickEnd;
+  final bool expanded;
+  final VoidCallback onToggleExpanded;
+
+  const TrackerChartControls({
+    super.key,
+    required this.chartType,
+    required this.period,
+    required this.startDate,
+    required this.endDate,
+    required this.formatDate,
+    required this.onChartTypeChanged,
+    required this.onPeriodChanged,
+    required this.onPickStart,
+    required this.onPickEnd,
+    required this.expanded,
+    required this.onToggleExpanded,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (!expanded) {
+      return Align(
+        key: const Key('tracker_chart_collapsed_toggle'),
+        alignment: Alignment.centerRight,
+        child: _expandButton(),
+      );
+    }
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isPhone = constraints.maxWidth < trackerChartPhoneBreakpoint;
+        if (isPhone) return _mobileControls(context);
+        return _desktopControls(context);
+      },
+    );
+  }
+
+  Widget _mobileControls(BuildContext context) {
+    return Column(
+      key: const Key('tracker_chart_mobile_controls'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Expanded(child: _chartTypeSelector(context)),
+            const SizedBox(width: 4),
+            _expandButton(),
+          ],
+        ),
+        const SizedBox(height: 8),
+        _periodSelector(context, expanded: true),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: _ChartDateButton(
+                key: const Key('tracker_chart_start_date'),
+                label: 'Start',
+                value: _mobileDate(startDate),
+                onPressed: onPickStart,
+                compact: true,
+              ),
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: _ChartDateButton(
+                key: const Key('tracker_chart_end_date'),
+                label: 'End',
+                value: _mobileDate(endDate),
+                onPressed: onPickEnd,
+                compact: true,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _desktopControls(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: SingleChildScrollView(
+            key: const Key('tracker_chart_desktop_control_scroll'),
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                _chartTypeSelector(context),
+                const SizedBox(width: 8),
+                _periodSelector(context),
+                const SizedBox(width: 8),
+                _ChartDateButton(
+                  key: const Key('tracker_chart_start_date'),
+                  label: 'Start',
+                  value: formatDate(startDate),
+                  onPressed: onPickStart,
+                ),
+                const SizedBox(width: 8),
+                _ChartDateButton(
+                  key: const Key('tracker_chart_end_date'),
+                  label: 'End',
+                  value: formatDate(endDate),
+                  onPressed: onPickEnd,
+                ),
+              ],
+            ),
+          ),
+        ),
+        _expandButton(),
+      ],
+    );
+  }
+
+  Widget _chartTypeSelector(BuildContext context) {
+    return SegmentedButton<TrackerChartType>(
+      showSelectedIcon: false,
+      style: _compactSegmentedStyle(context),
+      segments: const [
+        ButtonSegment(
+          value: TrackerChartType.line,
+          icon: Icon(Icons.show_chart, size: 18),
+          label: Text('Line'),
+        ),
+        ButtonSegment(
+          value: TrackerChartType.bar,
+          icon: Icon(Icons.bar_chart, size: 18),
+          label: Text('Bar'),
+        ),
+      ],
+      selected: {chartType},
+      onSelectionChanged: (selection) => onChartTypeChanged(selection.first),
+    );
+  }
+
+  Widget _periodSelector(BuildContext context, {bool expanded = false}) {
+    final selector = SegmentedButton<TrackerChartPeriod>(
+      showSelectedIcon: false,
+      style: _compactSegmentedStyle(context),
+      segments: const [
+        ButtonSegment(
+          value: TrackerChartPeriod.daily,
+          label: Text('Daily', maxLines: 1, softWrap: false),
+        ),
+        ButtonSegment(
+          value: TrackerChartPeriod.weekly,
+          label: Text('Weekly', maxLines: 1, softWrap: false),
+        ),
+        ButtonSegment(
+          value: TrackerChartPeriod.monthly,
+          label: Text('Monthly', maxLines: 1, softWrap: false),
+        ),
+        ButtonSegment(
+          value: TrackerChartPeriod.yearly,
+          label: Text('Yearly', maxLines: 1, softWrap: false),
+        ),
+      ],
+      selected: {period},
+      onSelectionChanged: (selection) => onPeriodChanged(selection.first),
+    );
+    return expanded ? SizedBox(width: double.infinity, child: selector) : selector;
+  }
+
+  Widget _expandButton() {
+    return IconButton(
+      icon: Icon(expanded ? Icons.expand_less : Icons.expand_more),
+      tooltip: expanded ? 'Hide chart' : 'Show chart',
+      visualDensity: VisualDensity.compact,
+      onPressed: onToggleExpanded,
+    );
+  }
+
+  ButtonStyle _compactSegmentedStyle(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return ButtonStyle(
+      visualDensity: VisualDensity.compact,
+      padding: WidgetStateProperty.all(const EdgeInsets.symmetric(horizontal: 6)),
+      textStyle: WidgetStateProperty.all(const TextStyle(fontSize: 12)),
+      backgroundColor: WidgetStateProperty.resolveWith((states) {
+        if (states.contains(WidgetState.selected)) {
+          return colors.primaryContainer;
+        }
+        return colors.surfaceContainerHighest;
+      }),
+      foregroundColor: WidgetStateProperty.resolveWith((states) {
+        if (states.contains(WidgetState.selected)) {
+          return colors.onPrimaryContainer;
+        }
+        return colors.onSurface;
+      }),
+    );
+  }
+
+  String _mobileDate(DateTime date) {
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    return '${months[date.month - 1]} ${date.day} ${date.year}';
+  }
+}
+
 class _ChartDateButton extends StatelessWidget {
   final String label;
   final String value;
   final VoidCallback onPressed;
+  final bool compact;
 
   const _ChartDateButton({
+    super.key,
     required this.label,
     required this.value,
     required this.onPressed,
+    this.compact = false,
   });
 
   @override
@@ -947,29 +1089,35 @@ class _ChartDateButton extends StatelessWidget {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
 
-    return OutlinedButton.icon(
+    final button = OutlinedButton.icon(
       onPressed: onPressed,
       icon: const Icon(Icons.calendar_today_outlined, size: 16),
-      label: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            '$label: ',
-            style: theme.textTheme.labelMedium?.copyWith(
-              color: colorScheme.onSurfaceVariant,
+      label: FittedBox(
+        fit: BoxFit.scaleDown,
+        alignment: Alignment.centerLeft,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              '$label: ',
+              style: theme.textTheme.labelMedium?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+                fontSize: compact ? 12 : null,
+              ),
             ),
-          ),
-          Text(value),
-        ],
+            Text(value),
+          ],
+        ),
       ),
       style: OutlinedButton.styleFrom(
         visualDensity: VisualDensity.compact,
-        textStyle: const TextStyle(fontSize: 13),
-        padding: const EdgeInsets.symmetric(horizontal: 10),
+        textStyle: TextStyle(fontSize: compact ? 12 : 13),
+        padding: EdgeInsets.symmetric(horizontal: compact ? 6 : 10),
         minimumSize: const Size(0, 36),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
     );
+    return button;
   }
 }
 
@@ -1118,7 +1266,10 @@ class _TrackerBarChart extends StatelessWidget {
           maxY: maxY,
           yInterval: yInterval,
           formatDate: formatDate,
-          topLabelGetter: null,
+          topLabelGetter: (index) =>
+              showTopLabels && points[index].value > 0
+              ? formatValue(points[index].value)
+              : '',
         ),
         barTouchData: BarTouchData(
           touchTooltipData: BarTouchTooltipData(
@@ -1149,8 +1300,7 @@ class _TrackerBarChart extends StatelessWidget {
           for (var i = 0; i < points.length; i++)
             BarChartGroupData(
               x: i,
-              showingTooltipIndicators:
-                  showTopLabels && points[i].value > 0 ? const [0] : const [],
+              showingTooltipIndicators: const [],
               barRods: [
                 BarChartRodData(
                   toY: points[i].value,
@@ -1189,7 +1339,7 @@ FlTitlesData _titlesData({
         : AxisTitles(
             sideTitles: SideTitles(
               showTitles: true,
-              reservedSize: 28,
+              reservedSize: 42,
               getTitlesWidget: (value, meta) {
                 final index = value.round();
                 if (index < 0 ||
