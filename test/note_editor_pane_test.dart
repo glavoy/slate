@@ -15,7 +15,7 @@ Future<QuillController> pumpEditorWithDeleteOverrides(
   bool includeDeleteOverrides = true,
   bool useHardwareDeleteHandler = false,
 }) async {
-  final controller = QuillController.basic();
+  final controller = createSelectionSafeQuillController();
   addTearDown(controller.dispose);
   final focusNode = FocusNode();
   addTearDown(focusNode.dispose);
@@ -225,6 +225,64 @@ void main() {
   });
 
   group('SelectionSafeDeleteAction', () {
+    testWidgets('controller guard deletes a large IME-style full selection', (
+      tester,
+    ) async {
+      final text = List.filled(5000, 'large selection ').join();
+      final controller = await pumpEditorWithDeleteOverrides(
+        tester,
+        text: text,
+      );
+
+      _selectAll(controller);
+      // This is the public controller call Quill makes after a native
+      // TextEditingValue update; it intentionally does not use a key event.
+      controller.replaceText(
+        0,
+        controller.document.length,
+        '',
+        const TextSelection.collapsed(offset: 0),
+      );
+      await tester.pump();
+
+      expect(controller.document.toPlainText(), '\n');
+      expect(controller.selection, const TextSelection.collapsed(offset: 0));
+    });
+
+    testWidgets('controller guard deletes a large formatted middle selection', (
+      tester,
+    ) async {
+      const before = 'Before ';
+      final selected = List.filled(3000, 'formatted ').join();
+      const after = ' After';
+      final controller = await pumpEditorWithDeleteOverrides(
+        tester,
+        text: '$before$selected$after',
+      );
+      controller.formatText(before.length, selected.length, Attribute.bold);
+      controller.updateSelection(
+        TextSelection(
+          baseOffset: before.length,
+          extentOffset: before.length + selected.length,
+        ),
+        ChangeSource.local,
+      );
+
+      controller.replaceText(
+        before.length,
+        selected.length,
+        '',
+        TextSelection.collapsed(offset: before.length),
+      );
+      await tester.pump();
+
+      expect(controller.document.toPlainText(), '$before$after\n');
+      expect(
+        controller.selection,
+        const TextSelection.collapsed(offset: before.length),
+      );
+    });
+
     testWidgets('hardware Delete removes a full-document selection before '
         'the platform text-input pipeline', (tester) async {
       final controller = await pumpEditorWithDeleteOverrides(
@@ -312,6 +370,35 @@ void main() {
         expect(controller.selection, const TextSelection.collapsed(offset: 0));
       },
     );
+
+    testWidgets('large repeated delete cycles keep the editor editable', (
+      tester,
+    ) async {
+      final text = List.filled(3000, 'first round ').join();
+      final controller = await pumpEditorWithDeleteOverrides(
+        tester,
+        text: text,
+      );
+
+      _selectAll(controller);
+      await tester.sendKeyEvent(LogicalKeyboardKey.backspace);
+      await tester.pump();
+
+      final next = List.filled(3000, 'second round ').join();
+      controller.replaceText(
+        0,
+        0,
+        next,
+        TextSelection.collapsed(offset: next.length),
+      );
+      await tester.pump();
+      _selectAll(controller);
+      await tester.sendKeyEvent(LogicalKeyboardKey.delete);
+      await tester.pump();
+
+      expect(controller.document.toPlainText(), '\n');
+      expect(controller.selection, const TextSelection.collapsed(offset: 0));
+    });
 
     testWidgets('word-boundary delete (ctrl+backspace) removes a selection', (
       tester,

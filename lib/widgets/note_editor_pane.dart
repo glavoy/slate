@@ -100,6 +100,47 @@ bool deleteExpandedQuillSelection(QuillController controller) {
   return true;
 }
 
+/// Creates the note editor's controller with a guard around Quill's lowest
+/// public text-replacement hook. Native IMEs can submit an expanded-selection
+/// delete as a whole [TextEditingValue] update, which bypasses Flutter's
+/// keyboard intents and Quill's `onKeyPressed` callback. Quill then computes a
+/// diff of the complete before/after documents; that path is unreliable for
+/// large replacements on some platforms.
+///
+/// When the incoming replacement is precisely the currently selected text and
+/// contains no new content, delete it directly and return `false` to prevent
+/// Quill from processing the same replacement through its diff pipeline.
+QuillController createSelectionSafeQuillController({
+  Document? document,
+  TextSelection selection = const TextSelection.collapsed(offset: 0),
+}) {
+  late final QuillController controller;
+  controller = QuillController(
+    document: document ?? Document(),
+    selection: selection,
+    onReplaceText: (index, length, replacement) {
+      final currentSelection = controller.selection;
+      final isSelectionDelete =
+          replacement is String &&
+          replacement.isEmpty &&
+          length > 0 &&
+          currentSelection.isValid &&
+          !currentSelection.isCollapsed &&
+          index == currentSelection.start &&
+          length == currentSelection.end - currentSelection.start;
+      if (!isSelectionDelete) return true;
+
+      controller.document.delete(index, length);
+      controller.updateSelection(
+        TextSelection.collapsed(offset: index),
+        ChangeSource.local,
+      );
+      return false;
+    },
+  );
+  return controller;
+}
+
 /// Handles desktop delete keys before they enter the platform text-input
 /// pipeline. This complements [SelectionSafeDeleteAction]: Windows delivers
 /// these keys through the editor's hardware-key callback, while macOS can also
@@ -217,7 +258,7 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
   @override
   void initState() {
     super.initState();
-    _quill = QuillController.basic();
+    _quill = createSelectionSafeQuillController();
     _deleteOverrides = {
       DeleteCharacterIntent: SelectionSafeDeleteAction<DeleteCharacterIntent>(
         _quill,
