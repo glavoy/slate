@@ -15,6 +15,7 @@ import '../providers/settings_providers.dart';
 import '../providers/tracker_providers.dart';
 import '../utils/tracker_chart_utils.dart';
 import '../utils/date_utils.dart' as du;
+import '../widgets/tracker_entry_date_picker.dart';
 
 class TrackerMetricScreen extends ConsumerStatefulWidget {
   final TrackerMetric metric;
@@ -156,14 +157,6 @@ class _TrackerMetricScreenState extends ConsumerState<TrackerMetricScreen> {
         builder: (ctx, setState) {
           final dateStyle = ref.read(dateFormatNotifierProvider);
 
-          String displayDate() {
-            final today = DateTime(now.year, now.month, now.day);
-            final diff = today.difference(selectedDate).inDays;
-            if (diff == 0) return 'Today';
-            if (diff == 1) return 'Yesterday';
-            return du.formatDateAs(selectedDate, dateStyle);
-          }
-
           return AlertDialog(
             title: Text(existing != null ? 'Edit entry' : 'Log ${metric.name}'),
             content: Form(
@@ -193,26 +186,12 @@ class _TrackerMetricScreenState extends ConsumerState<TrackerMetricScreen> {
                     },
                   ),
                   const SizedBox(height: 12),
-                  // Date row
-                  InkWell(
-                    onTap: () async {
-                      final picked = await showDatePicker(
-                        context: ctx,
-                        initialDate: selectedDate,
-                        firstDate: DateTime(2000),
-                        lastDate: DateTime.now(),
-                      );
-                      if (picked != null) {
-                        setState(() => selectedDate = picked);
-                      }
-                    },
-                    child: InputDecorator(
-                      decoration: const InputDecoration(
-                        labelText: 'Date',
-                        suffixIcon: Icon(Icons.calendar_today, size: 18),
-                      ),
-                      child: Text(displayDate()),
-                    ),
+                  TrackerEntryDatePicker(
+                    selectedDate: selectedDate,
+                    today: DateTime(now.year, now.month, now.day),
+                    dateStyle: dateStyle,
+                    onDateChanged: (date) =>
+                        setState(() => selectedDate = date),
                   ),
                   const SizedBox(height: 4),
                   // Time toggle
