@@ -1,16 +1,15 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/settings_providers.dart';
 import '../providers/supabase_provider.dart';
+import '../services/session_service.dart';
 import '../sync/sync_service.dart';
 import 'home_screen.dart';
 import 'notes_screen.dart';
 import 'settings_screen.dart';
 import 'tracker_screen.dart';
 import 'todo_screen.dart';
-import '../widgets/android_exit_confirmation.dart';
 
 class MainScreen extends ConsumerStatefulWidget {
   const MainScreen({super.key});
@@ -143,8 +142,9 @@ class _MainScreenState extends ConsumerState<MainScreen> {
                       IconButton(
                         icon: const Icon(Icons.logout),
                         tooltip: 'Sign out',
-                        onPressed: () =>
-                            ref.read(supabaseClientProvider).auth.signOut(),
+                        onPressed: () => SessionService.signOut(
+                          ref.read(supabaseClientProvider),
+                        ),
                       ),
                       Padding(
                         padding: const EdgeInsets.only(bottom: 12),
@@ -173,7 +173,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
       );
     }
 
-    final scaffold = Scaffold(
+    return Scaffold(
       body: stack,
       bottomNavigationBar: NavigationBar(
         selectedIndex: selectedIndex,
@@ -187,11 +187,6 @@ class _MainScreenState extends ConsumerState<MainScreen> {
             ),
         ],
       ),
-    );
-    return AndroidExitConfirmation(
-      enabled: platform == TargetPlatform.android,
-      onExit: SystemNavigator.pop,
-      child: scaffold,
     );
   }
 }

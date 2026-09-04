@@ -2,6 +2,25 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 typedef RemoteRow = Map<String, dynamic>;
 
+/// Position within a stable `(updated_at, key)` ordering used for paginated
+/// pulls. [since] is only used for the first page; later pages advance from
+/// [afterUpdatedAt] and [afterKey] without relying on a shifting offset.
+class SyncPullCursor {
+  const SyncPullCursor({this.since, this.afterUpdatedAt, this.afterKey});
+
+  final String? since;
+  final String? afterUpdatedAt;
+  final Object? afterKey;
+
+  bool get hasPosition => afterUpdatedAt != null && afterKey != null;
+
+  SyncPullCursor after(RemoteRow row, String keyColumn) => SyncPullCursor(
+    since: since,
+    afterUpdatedAt: row['updated_at']?.toString(),
+    afterKey: row[keyColumn],
+  );
+}
+
 /// An insert collided with an existing row (primary key or unique constraint).
 class RemoteUniqueViolation implements Exception {
   RemoteUniqueViolation(this.table);
@@ -45,14 +64,13 @@ abstract class SyncRemote {
   /// Fetches the single row matching all [filters], or null.
   Future<RemoteRow?> fetchWhere(String table, Map<String, Object?> filters);
 
-  /// One page of rows for [userId] with `updated_at >= since`, ordered by
-  /// `(updated_at, keyColumn)` so pagination is stable while rows change.
+  /// One keyset-paginated page for [userId], ordered by
+  /// `(updated_at, keyColumn)`.
   Future<List<RemoteRow>> pullSince(
     String table, {
     required String userId,
     required String keyColumn,
-    String? since,
-    required int offset,
+    required SyncPullCursor cursor,
     required int limit,
   });
 }
@@ -128,18 +146,23 @@ class SupabaseSyncRemote implements SyncRemote {
     String table, {
     required String userId,
     required String keyColumn,
-    String? since,
-    required int offset,
+    required SyncPullCursor cursor,
     required int limit,
   }) async {
     dynamic query = _client.from(table).select().eq('user_id', userId);
-    if (since != null) {
-      query = query.gte('updated_at', since);
+    if (cursor.hasPosition) {
+      final updatedAt = cursor.afterUpdatedAt!;
+      final key = cursor.afterKey!;
+      query = query.or(
+        'updated_at.gt.$updatedAt,and(updated_at.eq.$updatedAt,$keyColumn.gt.$key)',
+      );
+    } else if (cursor.since != null) {
+      query = query.gte('updated_at', cursor.since!);
     }
     query = query
         .order('updated_at', ascending: true)
         .order(keyColumn, ascending: true)
-        .range(offset, offset + limit - 1);
+        .limit(limit);
     final dynamic response = await query;
     return (response as List).cast<RemoteRow>();
   }

@@ -1,7 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'providers/auth_provider.dart';
 import 'providers/theme_provider.dart';
+import 'services/session_service.dart';
 import 'screens/auth_screen.dart';
 import 'screens/main_screen.dart';
 import 'sync/sync_service.dart';
@@ -19,6 +23,17 @@ class _SlateAppState extends ConsumerState<SlateApp>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    ref.listenManual(authStateProvider, (previous, next) {
+      next.whenData((authState) {
+        if (authState.event == AuthChangeEvent.signedOut) {
+          unawaited(_clearSignedOutSession());
+        }
+      });
+    });
+  }
+
+  Future<void> _clearSignedOutSession() async {
+    await SessionService.clearSignedOutData();
   }
 
   @override

@@ -55,10 +55,12 @@ class SyncService {
   RealtimeChannel? _realtimeChannel;
   Timer? _periodicSyncTimer;
   Timer? _pushDebounce;
+  Completer<void>? _idleCompleter;
   final _changes = StreamController<void>.broadcast();
   static const _uuid = Uuid();
 
   bool _busy = false;
+  bool _isPaused = false;
   bool _rerun = false;
   bool _rerunPull = false;
 
@@ -97,6 +99,7 @@ class SyncService {
     required LocalDatabase local,
     SyncRemote? remote,
   }) {
+    _isPaused = false;
     _client = client;
     _remote = remote ?? SupabaseSyncRemote(client);
     _local = local;
@@ -119,6 +122,7 @@ class SyncService {
   Future<void> resume() async {
     final client = _client;
     if (client == null) return;
+    _isPaused = false;
     _startPeriodicTimer();
     await _reconnectRealtime();
     await syncNow(force: true);
@@ -127,12 +131,22 @@ class SyncService {
   /// Call when the app is backgrounded. Flushes pending writes, then releases
   /// the realtime socket and the foreground timer so a backgrounded app holds
   /// no open connection.
-  Future<void> pause() async {
+  Future<void> pause({bool flushPending = true}) async {
     _periodicSyncTimer?.cancel();
     _periodicSyncTimer = null;
     _pushDebounce?.cancel();
-    // Best-effort flush of anything still pending before we go quiet.
-    await _execute(pull: false);
+    if (flushPending) {
+      // Best-effort flush of anything still pending before we go quiet.
+      await _execute(pull: false);
+    } else {
+      // Sign-out deliberately discards pending work. Let an in-flight sync
+      // finish before the caller clears SQLite, but prevent any follow-up run.
+      _isPaused = true;
+      _rerun = false;
+      _rerunPull = false;
+      await _idleCompleter?.future;
+    }
+    _isPaused = true;
     final client = _client;
     final channel = _realtimeChannel;
     _realtimeChannel = null;
@@ -154,6 +168,7 @@ class SyncService {
   /// Coalesced, push-only sync. Repositories call this after a local write so a
   /// burst of edits results in a single push pass and no read traffic.
   void schedulePush() {
+    if (_isPaused) return;
     _pushDebounce?.cancel();
     _pushDebounce = Timer(pushDebounceDelay, () {
       unawaited(_execute(pull: false));
@@ -178,7 +193,7 @@ class SyncService {
     final remote = _remote;
     final local = _local;
     final userId = _userId;
-    if (remote == null || local == null || userId == null) return;
+    if (_isPaused || remote == null || local == null || userId == null) return;
 
     if (_busy) {
       _rerun = true;
@@ -187,6 +202,7 @@ class SyncService {
     }
 
     _busy = true;
+    _idleCompleter = Completer<void>();
     _syncStartedAt = DateTime.now();
     try {
       await _run(remote, local, userId, pull: pull).timeout(
@@ -200,11 +216,16 @@ class SyncService {
     } finally {
       _busy = false;
       _syncStartedAt = null;
+      final idleCompleter = _idleCompleter;
+      _idleCompleter = null;
       if (_rerun) {
         final nextPull = _rerunPull;
         _rerun = false;
         _rerunPull = false;
-        unawaited(_execute(pull: nextPull));
+        if (!_isPaused) unawaited(_execute(pull: nextPull));
+      }
+      if (idleCompleter != null && !idleCompleter.isCompleted) {
+        idleCompleter.complete();
       }
     }
   }
@@ -380,8 +401,8 @@ class SyncService {
     RemoteRow? conflictingRow;
     if (baseVersion == null) {
       // Never seen on the server: plain insert. A unique violation means the
-      // row already exists there (journal same-date created on two devices,
-      // simple_list primary key, pre-migration rows).
+      // row already exists there (simple_list primary key or a pre-migration
+      // row).
       try {
         serverRow = await remote.insert(table.name, payload);
       } on RemoteUniqueViolation {
@@ -435,7 +456,7 @@ class SyncService {
   }
 
   /// Locates the server row an insert collided with: by primary key first,
-  /// then by the table's composite unique key (journal date, tracker entry).
+  /// then by the table's composite unique key (tracker entry).
   Future<RemoteRow?> _fetchServerCounterpart(
     SyncRemote remote,
     _SyncTable table,
@@ -445,12 +466,6 @@ class SyncService {
       table.keyColumn: row[table.keyColumn],
     });
     if (byKey != null) return byKey;
-    if (table.localConflict == 'user_id, entry_date') {
-      return remote.fetchWhere(table.name, {
-        'user_id': row['user_id'],
-        'entry_date': row['entry_date'],
-      });
-    }
     if (table.localConflict == 'metric_id, user_id, recorded_at') {
       return remote.fetchWhere(table.name, {
         'metric_id': row['metric_id'],
@@ -590,9 +605,8 @@ class SyncService {
         _createConflictCopy(local, serverRow, userId);
       }
       if (serverKey != null && serverKey != key) {
-        // Same logical row under a different id (composite-key collision, e.g.
-        // a journal entry for the same date). Adopt the server identity so the
-        // retry CAS targets the right row.
+        // Same logical row under a different id after a composite-key
+        // collision. Adopt the server identity so the retry CAS targets it.
         local.execute(
           '''
           UPDATE ${table.name}
@@ -694,7 +708,7 @@ class SyncService {
       final hwmKey = 'pull_hwm_${table.name}';
       final since = local.getMeta(hwmKey);
       DateTime? maxSeen;
-      var from = 0;
+      var cursor = SyncPullCursor(since: since);
       var completed = false;
 
       while (true) {
@@ -703,8 +717,7 @@ class SyncService {
             table.name,
             userId: userId,
             keyColumn: table.keyColumn,
-            since: since,
-            offset: from,
+            cursor: cursor,
             limit: _pullPageSize,
           );
           for (final row in rows) {
@@ -720,7 +733,7 @@ class SyncService {
             completed = true;
             break;
           }
-          from += _pullPageSize;
+          cursor = cursor.after(rows.last, table.keyColumn);
         } catch (error, stackTrace) {
           // Continue pulling other tables even if one table is unavailable. Do
           // not advance the high-water mark for a table that failed to pull.
@@ -833,16 +846,6 @@ class SyncService {
 
     // For tables with a composite unique key, also look up by that key so we
     // can detect a local row with a different id but the same logical identity.
-    if (table.localConflict == 'user_id, entry_date') {
-      final userId = row['user_id'];
-      final entryDate = row['entry_date'];
-      if (userId != null && entryDate != null) {
-        return local.selectOne(
-          'SELECT * FROM ${table.name} WHERE user_id = ? AND entry_date = ?',
-          [userId, entryDate],
-        );
-      }
-    }
     if (table.localConflict == 'metric_id, user_id, recorded_at') {
       final metricId = row['metric_id'];
       final userId = row['user_id'];

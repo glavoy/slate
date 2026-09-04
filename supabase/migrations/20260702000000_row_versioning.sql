@@ -21,14 +21,12 @@
 
 alter table public.tasks           add column if not exists version bigint not null default 1;
 alter table public.notes           add column if not exists version bigint not null default 1;
-alter table public.journal_entries add column if not exists version bigint not null default 1;
 alter table public.simple_list     add column if not exists version bigint not null default 1;
 alter table public.tracker_metrics add column if not exists version bigint not null default 1;
 alter table public.tracker_entries add column if not exists version bigint not null default 1;
 
 alter table public.tasks           add column if not exists client_modified_at timestamptz;
 alter table public.notes           add column if not exists client_modified_at timestamptz;
-alter table public.journal_entries add column if not exists client_modified_at timestamptz;
 alter table public.simple_list     add column if not exists client_modified_at timestamptz;
 alter table public.tracker_metrics add column if not exists client_modified_at timestamptz;
 alter table public.tracker_entries add column if not exists client_modified_at timestamptz;
@@ -52,11 +50,6 @@ create trigger bump_version
 drop trigger if exists bump_version on public.notes;
 create trigger bump_version
   before update on public.notes
-  for each row execute function public.bump_version();
-
-drop trigger if exists bump_version on public.journal_entries;
-create trigger bump_version
-  before update on public.journal_entries
   for each row execute function public.bump_version();
 
 drop trigger if exists bump_version on public.simple_list;

@@ -33,11 +33,6 @@ create trigger set_updated_at
   before insert or update on public.notes
   for each row execute function public.set_updated_at();
 
-drop trigger if exists set_updated_at on public.journal_entries;
-create trigger set_updated_at
-  before insert or update on public.journal_entries
-  for each row execute function public.set_updated_at();
-
 drop trigger if exists set_updated_at on public.simple_list;
 create trigger set_updated_at
   before insert or update on public.simple_list

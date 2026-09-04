@@ -6,6 +6,7 @@ import '../providers/auth_provider.dart';
 import '../providers/settings_providers.dart';
 import '../providers/supabase_provider.dart';
 import '../providers/theme_provider.dart';
+import '../services/session_service.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -120,7 +121,8 @@ class SettingsScreen extends ConsumerWidget {
           ListTile(
             leading: Icon(Icons.logout, color: colorScheme.error),
             title: Text('Sign out', style: TextStyle(color: colorScheme.error)),
-            onTap: () => ref.read(supabaseClientProvider).auth.signOut(),
+            onTap: () =>
+                SessionService.signOut(ref.read(supabaseClientProvider)),
           ),
 
           const Divider(height: 24),

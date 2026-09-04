@@ -154,10 +154,12 @@ class LocalDatabase {
   /// server_version is first added, the pull high-water marks are cleared to
   /// force one full re-pull that backfills it from the server.
   void _migrateSchema() {
-    // Remove historical journal data from existing installs and discard its
-    // sync cursor.
-    db.execute('DROP TABLE IF EXISTS journal_entries');
-    deleteMeta('pull_hwm_journal_entries');
+    const journalCleanupKey = 'local_cleanup_journal_entries_v1';
+    if (getMeta(journalCleanupKey) == null) {
+      db.execute('DROP TABLE IF EXISTS journal_entries');
+      deleteMeta('pull_hwm_journal_entries');
+      setMeta(journalCleanupKey, 'complete');
+    }
 
     var addedServerVersion = false;
     for (final table in _syncedTables) {
@@ -226,6 +228,17 @@ class LocalDatabase {
 
   void deleteMeta(String key) {
     execute('DELETE FROM sync_meta WHERE key = ?', [key]);
+  }
+
+  /// Removes every locally cached user row and sync cursor after sign-out.
+  void clearCachedData() {
+    transaction(() {
+      // Entries reference metrics, so delete in reverse dependency order.
+      for (final table in _syncedTables.reversed) {
+        execute('DELETE FROM $table');
+      }
+      execute('DELETE FROM sync_meta');
+    });
   }
 }
 

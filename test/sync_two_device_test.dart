@@ -10,7 +10,12 @@ const _userId = 'user-1';
 /// same unique constraints as the real schema.
 class FakeSyncRemote implements SyncRemote {
   final Map<String, List<RemoteRow>> _tables = {};
+  final Map<String, int> _pullCalls = {};
   int _clock = 0;
+
+  /// Test hook invoked immediately before the second tasks pull is evaluated.
+  /// It models a remote row changing between pages of one reconciliation.
+  void Function()? onSecondTasksPull;
 
   static const _keyColumns = {
     'tasks': 'id',
@@ -33,6 +38,33 @@ class FakeSyncRemote implements SyncRemote {
       1,
       1,
     ).add(Duration(seconds: _clock)).toIso8601String();
+  }
+
+  void seedTask(String id) {
+    rows('tasks').add({
+      'id': id,
+      'user_id': _userId,
+      'title': 'Task $id',
+      'due_date': '2026-06-01',
+      'notes': null,
+      'is_done': false,
+      'recurrence': 'none',
+      'due_time': null,
+      'series_id': null,
+      'created_at': _stamp(),
+      'completed_at': null,
+      'updated_at': _stamp(),
+      'sync_deleted_at': null,
+      'client_modified_at': _stamp(),
+      'version': 1,
+    });
+  }
+
+  void updateTaskRemotely(String id) {
+    final row = rows('tasks').firstWhere((row) => row['id'] == id);
+    row['title'] = 'Updated $id';
+    row['version'] = (row['version'] as int) + 1;
+    row['updated_at'] = _stamp();
   }
 
   @override
@@ -116,17 +148,21 @@ class FakeSyncRemote implements SyncRemote {
     String table, {
     required String userId,
     required String keyColumn,
-    String? since,
-    required int offset,
+    required SyncPullCursor cursor,
     required int limit,
   }) async {
+    final pullCall = (_pullCalls[table] ?? 0) + 1;
+    _pullCalls[table] = pullCall;
+    if (table == 'tasks' && pullCall == 2) {
+      onSecondTasksPull?.call();
+    }
     final matched =
         rows(table)
             .where((r) => r['user_id'] == userId)
             .where(
               (r) =>
-                  since == null ||
-                  (r['updated_at'] as String).compareTo(since) >= 0,
+                  cursor.since == null ||
+                  (r['updated_at'] as String).compareTo(cursor.since!) >= 0,
             )
             .map(Map<String, dynamic>.of)
             .toList()
@@ -137,11 +173,16 @@ class FakeSyncRemote implements SyncRemote {
             if (byTime != 0) return byTime;
             return a[keyColumn].toString().compareTo(b[keyColumn].toString());
           });
-    if (offset >= matched.length) return [];
-    return matched.sublist(
-      offset,
-      offset + limit > matched.length ? matched.length : offset + limit,
-    );
+    final page = cursor.hasPosition
+        ? matched.where((row) {
+            final time = row['updated_at'] as String;
+            final key = row[keyColumn].toString();
+            return time.compareTo(cursor.afterUpdatedAt!) > 0 ||
+                (time == cursor.afterUpdatedAt &&
+                    key.compareTo(cursor.afterKey.toString()) > 0);
+          }).toList()
+        : matched;
+    return page.take(limit).toList();
   }
 }
 
@@ -380,4 +421,30 @@ void main() {
       expect(laptop.note('n1')!['content'], 'same words');
     },
   );
+
+  test('keyset pagination does not skip a row when an earlier page row '
+      'reorders during a multi-page pull', () async {
+    // SyncService pulls 1,000 rows per page. Moving one of the first-page
+    // rows to the end used to make an offset-based second page skip task 1000.
+    for (var index = 0; index <= 1000; index++) {
+      remote.seedTask('task-${index.toString().padLeft(4, '0')}');
+    }
+    remote.onSecondTasksPull = () => remote.updateTaskRemotely('task-0000');
+
+    await phone.sync();
+
+    final localTasks = phone.local.select('SELECT id FROM tasks');
+    expect(localTasks, hasLength(1001));
+    expect(
+      localTasks.map((row) => row['id']),
+      contains('task-1000'),
+      reason: 'The row immediately after the old offset boundary is retained.',
+    );
+    expect(
+      phone.local.selectOne('SELECT title FROM tasks WHERE id = ?', [
+        'task-0000',
+      ])!['title'],
+      'Updated task-0000',
+    );
+  });
 }

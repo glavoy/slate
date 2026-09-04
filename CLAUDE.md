@@ -28,7 +28,7 @@ flutter build macos --release
 
 ## Architecture
 
-**Navigation:** No router. `MainScreen` uses an `IndexedStack` (all 5 screens stay mounted simultaneously) with adaptive navigation — `NavigationRail` on macOS/desktop, `NavigationBar` on Android. Each section is a self-contained `Scaffold` with its own `AppBar` (theme toggle + sign-out).
+**Navigation:** No router. `MainScreen` uses an `IndexedStack` (all visible sections stay mounted simultaneously) with adaptive navigation — `NavigationRail` on macOS/desktop, `NavigationBar` on Android. The primary destinations are Tasks, Notes, Tracker, and To Do; Settings is also available from the navigation UI.
 
 **State:** Riverpod with code generation (`@riverpod`). The standard pattern throughout is:
 
@@ -52,7 +52,7 @@ freezed model  →  Repository (local SQLite CRUD + sync scheduling)  →  @rive
 
 **Recurring tasks:** Completing a recurring task writes `series_id` and inserts the next occurrence in a single SQLite transaction inside `TaskRepository.markDone`. Future occurrences are projected on the calendar view.
 
-**Auto-save pattern** (Notes editor, Journal, Simple List):
+**Auto-save pattern** (Notes editor and To Do list):
 
 ```dart
 Timer? _debounce;
@@ -79,6 +79,8 @@ abstract class Env {
 
 ## Supabase tables
 
-`tasks`, `simple_list`, `notes`, `journal_entries`, `tracker_metrics`, `tracker_entries`. All have RLS enabled with `auth.uid() = user_id` policies. Realtime is enabled for all tables via the `supabase_realtime` publication. Two server-side triggers per table: `set_updated_at` stamps `updated_at`, `bump_version` increments `version` on every UPDATE — app code never sends either column. Schema changes go in `supabase/migrations/` and must be applied manually (SQL editor / CLI); keep `supabase/slate.json` in sync.
+`tasks`, `simple_list`, `notes`, `tracker_metrics`, and `tracker_entries`. All have RLS enabled with `auth.uid() = user_id` policies. Realtime is enabled for all tables via the `supabase_realtime` publication. Two server-side triggers per table: `set_updated_at` stamps `updated_at`, `bump_version` increments `version` on every UPDATE — app code never sends either column.
+
+Use the Supabase CLI for all schema changes. Create a timestamped migration with `supabase migration new <description>`, validate it against a fresh local stack with `supabase start` and `supabase db reset`, then deploy it with `supabase db push`. Verify local and remote history with `supabase migration list`. `supabase/slate.json` is the checked-in snapshot of the linked remote public schema; regenerate it after a schema change with `supabase db dump --linked --schema public` and update the snapshot.
 
 The local SQLite schema mirrors these tables and adds sync bookkeeping columns: `sync_status` (`'pending'`/`'synced'`), `client_modified_at`, `last_synced_at`, `sync_deleted_at`, `pending_delete`. See `lib/local/local_database.dart` for the full schema.
