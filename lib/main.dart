@@ -23,10 +23,8 @@ void main() async {
     container.read(themeNotifierProvider.notifier).init(),
     container.read(dateFormatNotifierProvider.notifier).init(),
     container.read(timeFormatNotifierProvider.notifier).init(),
-    container.read(showNotesQuickListNotifierProvider.notifier).init(),
     container.read(showCompletedTasksNotifierProvider.notifier).init(),
     container.read(showTrackerSectionNotifierProvider.notifier).init(),
-    container.read(showDailyLogSectionNotifierProvider.notifier).init(),
     container.read(lastMainSectionNotifierProvider.notifier).init(),
   ]);
 

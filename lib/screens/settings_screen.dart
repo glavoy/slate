@@ -15,10 +15,8 @@ class SettingsScreen extends ConsumerWidget {
     final themeMode = ref.watch(themeNotifierProvider);
     final dateStyle = ref.watch(dateFormatNotifierProvider);
     final timeStyle = ref.watch(timeFormatNotifierProvider);
-    final showNotesQuickList = ref.watch(showNotesQuickListNotifierProvider);
     final showCompletedTasks = ref.watch(showCompletedTasksNotifierProvider);
     final showTrackerSection = ref.watch(showTrackerSectionNotifierProvider);
-    final showDailyLogSection = ref.watch(showDailyLogSectionNotifierProvider);
     final user = ref.watch(currentUserProvider);
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
@@ -99,27 +97,6 @@ class SettingsScreen extends ConsumerWidget {
                 .read(showTrackerSectionNotifierProvider.notifier)
                 .set(value),
           ),
-          SwitchListTile(
-            secondary: const Icon(Icons.event_note_outlined),
-            title: const Text('Show Daily Log'),
-            value: showDailyLogSection,
-            onChanged: (value) => ref
-                .read(showDailyLogSectionNotifierProvider.notifier)
-                .set(value),
-          ),
-
-          const Divider(height: 24),
-          _SectionHeader(theme: theme, label: 'NOTES'),
-
-          SwitchListTile(
-            secondary: const Icon(Icons.playlist_add_check_outlined),
-            title: const Text('Show quick list'),
-            value: showNotesQuickList,
-            onChanged: (value) => ref
-                .read(showNotesQuickListNotifierProvider.notifier)
-                .set(value),
-          ),
-
           const Divider(height: 24),
           _SectionHeader(theme: theme, label: 'TASKS'),
 
@@ -167,7 +144,6 @@ class SettingsScreen extends ConsumerWidget {
       ),
     );
   }
-
 }
 
 class _SectionHeader extends StatelessWidget {

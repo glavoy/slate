@@ -5,11 +5,8 @@ part 'settings_providers.g.dart';
 
 const _dateFormatKey = 'date_format';
 const _timeFormatKey = 'time_format';
-const _legacyShowTaskQuickListKey = 'show_task_quick_list';
-const _showNotesQuickListKey = 'show_notes_quick_list';
 const _showCompletedTasksKey = 'show_completed_tasks';
 const _showTrackerSectionKey = 'show_tracker_section';
-const _showDailyLogSectionKey = 'show_daily_log_section';
 const _lastMainSectionKey = 'last_main_section';
 
 const defaultMainSectionName = 'tasks';
@@ -17,7 +14,7 @@ const mainSectionNames = <String>{
   'tasks',
   'notes',
   'tracker',
-  'dailyLog',
+  'todo',
   'settings',
 };
 
@@ -85,33 +82,6 @@ class TimeFormatNotifier extends _$TimeFormatNotifier {
 }
 
 @Riverpod(keepAlive: true)
-class ShowNotesQuickListNotifier extends _$ShowNotesQuickListNotifier {
-  @override
-  bool build() => true;
-
-  Future<void> init() async {
-    final prefs = await SharedPreferences.getInstance();
-    final stored = prefs.getBool(_showNotesQuickListKey);
-    if (stored != null) {
-      state = stored;
-      return;
-    }
-
-    final legacyStored = prefs.getBool(_legacyShowTaskQuickListKey);
-    state = legacyStored ?? true;
-    if (legacyStored != null) {
-      await prefs.setBool(_showNotesQuickListKey, legacyStored);
-    }
-  }
-
-  Future<void> set(bool value) async {
-    state = value;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_showNotesQuickListKey, value);
-  }
-}
-
-@Riverpod(keepAlive: true)
 class ShowCompletedTasksNotifier extends _$ShowCompletedTasksNotifier {
   @override
   bool build() => true;
@@ -146,23 +116,6 @@ class ShowTrackerSectionNotifier extends _$ShowTrackerSectionNotifier {
 }
 
 @Riverpod(keepAlive: true)
-class ShowDailyLogSectionNotifier extends _$ShowDailyLogSectionNotifier {
-  @override
-  bool build() => true;
-
-  Future<void> init() async {
-    final prefs = await SharedPreferences.getInstance();
-    state = prefs.getBool(_showDailyLogSectionKey) ?? true;
-  }
-
-  Future<void> set(bool value) async {
-    state = value;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_showDailyLogSectionKey, value);
-  }
-}
-
-@Riverpod(keepAlive: true)
 class LastMainSection extends _$LastMainSection {
   @override
   String build() => defaultMainSectionName;
@@ -187,8 +140,6 @@ class LastMainSection extends _$LastMainSection {
 
 const dateFormatNotifierProvider = dateFormatProvider;
 const timeFormatNotifierProvider = timeFormatProvider;
-const showNotesQuickListNotifierProvider = showNotesQuickListProvider;
 const showCompletedTasksNotifierProvider = showCompletedTasksProvider;
 const showTrackerSectionNotifierProvider = showTrackerSectionProvider;
-const showDailyLogSectionNotifierProvider = showDailyLogSectionProvider;
 const lastMainSectionNotifierProvider = lastMainSectionProvider;

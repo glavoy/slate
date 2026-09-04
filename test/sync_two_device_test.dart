@@ -15,14 +15,12 @@ class FakeSyncRemote implements SyncRemote {
   static const _keyColumns = {
     'tasks': 'id',
     'notes': 'id',
-    'journal_entries': 'id',
     'simple_list': 'user_id',
     'tracker_metrics': 'id',
     'tracker_entries': 'id',
   };
 
   static const _compositeKeys = {
-    'journal_entries': ['user_id', 'entry_date'],
     'tracker_entries': ['metric_id', 'user_id', 'recorded_at'],
   };
 
@@ -30,9 +28,11 @@ class FakeSyncRemote implements SyncRemote {
 
   String _stamp() {
     _clock++;
-    return DateTime.utc(2026, 1, 1)
-        .add(Duration(seconds: _clock))
-        .toIso8601String();
+    return DateTime.utc(
+      2026,
+      1,
+      1,
+    ).add(Duration(seconds: _clock)).toIso8601String();
   }
 
   @override
@@ -221,40 +221,17 @@ class TestDevice {
     );
   }
 
-  void createJournalEntry({
-    required String id,
-    required String entryDate,
-    required String content,
-    required String clientTime,
-  }) {
-    local.execute(
-      '''
-      INSERT INTO journal_entries (
-        id, user_id, entry_date, content, created_at, updated_at,
-        sync_status, client_modified_at, pending_delete
-      ) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, 0)
-      ''',
-      [id, _userId, entryDate, content, clientTime, clientTime, clientTime],
-    );
-  }
-
   Map<String, Object?>? note(String id) =>
       local.selectOne('SELECT * FROM notes WHERE id = ?', [id]);
 
   List<Map<String, Object?>> allNotes() =>
       local.select('SELECT * FROM notes ORDER BY created_at, id');
 
-  List<Map<String, Object?>> journalEntries() =>
-      local.select('SELECT * FROM journal_entries');
-
   List<RemoteRow> serverNotes() => _remote.rows('notes');
 }
 
-String t(int seconds) => DateTime.utc(
-  2026,
-  6,
-  1,
-).add(Duration(seconds: seconds)).toIso8601String();
+String t(int seconds) =>
+    DateTime.utc(2026, 6, 1).add(Duration(seconds: seconds)).toIso8601String();
 
 void main() {
   late FakeSyncRemote remote;
@@ -291,9 +268,7 @@ void main() {
     // The phone's newer edit survives everywhere.
     expect(laptop.note('n1')!['content'], 'phone edit');
     expect(laptop.note('n1')!['sync_status'], 'synced');
-    final serverN1 = remote
-        .rows('notes')
-        .firstWhere((r) => r['id'] == 'n1');
+    final serverN1 = remote.rows('notes').firstWhere((r) => r['id'] == 'n1');
     expect(serverN1['content'], 'phone edit');
 
     // The laptop's edit is preserved as a conflicted copy and synced out.
@@ -324,7 +299,11 @@ void main() {
 
     // The phone now edits sequentially — its wall clock reads EARLIER than the
     // laptop's previous edit. Versions, not clocks, order the writes.
-    phone.editNote('n1', content: 'phone (later, slow clock)', clientTime: t(60));
+    phone.editNote(
+      'n1',
+      content: 'phone (later, slow clock)',
+      clientTime: t(60),
+    );
     await phone.sync();
     await laptop.sync();
 
@@ -377,48 +356,28 @@ void main() {
     expect(phone.note('n1')!['content'], 'laptop edit');
   });
 
-  test('journal entries created for the same day on both devices merge into '
-      'one row by last-writer-wins', () async {
-    phone.createJournalEntry(
-      id: 'j-phone',
-      entryDate: '2026-06-01',
-      content: 'phone words',
-      clientTime: t(0),
-    );
-    laptop.createJournalEntry(
-      id: 'j-laptop',
-      entryDate: '2026-06-01',
-      content: 'laptop words',
-      clientTime: t(10),
-    );
-    await phone.sync();
-    await laptop.sync();
-    await phone.sync();
+  test(
+    'identical concurrent content produces no conflicted-copy noise',
+    () async {
+      phone.createNote(
+        id: 'n1',
+        title: 'Note',
+        content: 'v1',
+        clientTime: t(0),
+      );
+      await phone.sync();
+      await laptop.sync();
 
-    // One logical entry everywhere, under the first-created id, holding the
-    // newer content.
-    expect(remote.rows('journal_entries'), hasLength(1));
-    final serverRow = remote.rows('journal_entries').single;
-    expect(serverRow['id'], 'j-phone');
-    expect(serverRow['content'], 'laptop words');
-    expect(laptop.journalEntries().single['id'], 'j-phone');
-    expect(phone.journalEntries().single['content'], 'laptop words');
-  });
+      laptop.editNote('n1', content: 'same words', clientTime: t(10));
+      phone.editNote('n1', content: 'same words', clientTime: t(20));
+      await phone.sync();
+      await laptop.sync();
+      await phone.sync();
 
-  test('identical concurrent content produces no conflicted-copy noise', () async {
-    phone.createNote(id: 'n1', title: 'Note', content: 'v1', clientTime: t(0));
-    await phone.sync();
-    await laptop.sync();
-
-    laptop.editNote('n1', content: 'same words', clientTime: t(10));
-    phone.editNote('n1', content: 'same words', clientTime: t(20));
-    await phone.sync();
-    await laptop.sync();
-    await phone.sync();
-
-    expect(remote.rows('notes'), hasLength(1));
-    expect(phone.allNotes(), hasLength(1));
-    expect(laptop.allNotes(), hasLength(1));
-    expect(laptop.note('n1')!['content'], 'same words');
-  });
+      expect(remote.rows('notes'), hasLength(1));
+      expect(phone.allNotes(), hasLength(1));
+      expect(laptop.allNotes(), hasLength(1));
+      expect(laptop.note('n1')!['content'], 'same words');
+    },
+  );
 }

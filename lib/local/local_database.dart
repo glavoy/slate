@@ -89,24 +89,6 @@ class LocalDatabase {
     ''');
 
     db.execute('''
-      CREATE TABLE IF NOT EXISTS journal_entries (
-        id TEXT PRIMARY KEY,
-        user_id TEXT NOT NULL,
-        entry_date TEXT NOT NULL,
-        content TEXT NOT NULL DEFAULT '',
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        sync_deleted_at TEXT,
-        sync_status TEXT NOT NULL DEFAULT 'synced',
-        last_synced_at TEXT,
-        client_modified_at TEXT NOT NULL,
-        pending_delete INTEGER NOT NULL DEFAULT 0,
-        server_version INTEGER,
-        UNIQUE(user_id, entry_date)
-      );
-    ''');
-
-    db.execute('''
       CREATE TABLE IF NOT EXISTS simple_list (
         user_id TEXT PRIMARY KEY,
         content TEXT NOT NULL DEFAULT '',
@@ -162,7 +144,6 @@ class LocalDatabase {
   static const _syncedTables = [
     'tasks',
     'notes',
-    'journal_entries',
     'simple_list',
     'tracker_metrics',
     'tracker_entries',
@@ -173,11 +154,16 @@ class LocalDatabase {
   /// server_version is first added, the pull high-water marks are cleared to
   /// force one full re-pull that backfills it from the server.
   void _migrateSchema() {
+    // Remove historical journal data from existing installs and discard its
+    // sync cursor.
+    db.execute('DROP TABLE IF EXISTS journal_entries');
+    deleteMeta('pull_hwm_journal_entries');
+
     var addedServerVersion = false;
     for (final table in _syncedTables) {
-      final columns = select('PRAGMA table_info($table)')
-          .map((row) => row['name'] as String)
-          .toSet();
+      final columns = select(
+        'PRAGMA table_info($table)',
+      ).map((row) => row['name'] as String).toSet();
       if (!columns.contains('server_version')) {
         execute('ALTER TABLE $table ADD COLUMN server_version INTEGER');
         addedServerVersion = true;

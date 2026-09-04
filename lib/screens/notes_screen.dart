@@ -2,10 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/note.dart';
-import '../providers/settings_providers.dart';
 import '../providers/note_providers.dart';
 import '../widgets/note_editor_pane.dart';
-import '../widgets/simple_list_section.dart';
 import 'note_editor_screen.dart';
 
 class NotesScreen extends ConsumerStatefulWidget {
@@ -23,7 +21,6 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
   final _pendingCreatedNoteIds = <String>{};
   bool _autoFocusTitle = false;
   bool _isWide = false;
-  bool _simpleListExpanded = true;
 
   @override
   void dispose() {
@@ -136,44 +133,6 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
     );
   }
 
-  Widget _buildSimpleListSection(ThemeData theme, ColorScheme colorScheme) {
-    final header = InkWell(
-      onTap: () => setState(() => _simpleListExpanded = !_simpleListExpanded),
-      child: Container(
-        color: theme.scaffoldBackgroundColor,
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-        child: Row(
-          children: [
-            Text(
-              'QUICK LIST',
-              style: theme.textTheme.labelLarge?.copyWith(
-                color: colorScheme.onSurface.withValues(alpha: 0.6),
-                letterSpacing: 0.8,
-              ),
-            ),
-            const SizedBox(width: 4),
-            Icon(
-              _simpleListExpanded ? Icons.expand_more : Icons.chevron_right,
-              size: 18,
-              color: colorScheme.onSurface.withValues(alpha: 0.6),
-            ),
-          ],
-        ),
-      ),
-    );
-
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        header,
-        if (_simpleListExpanded) ...[
-          const SimpleListSection(),
-          const SizedBox(height: 8),
-        ],
-      ],
-    );
-  }
-
   Widget _buildNoteList(
     BuildContext context,
     List<Note> notes,
@@ -256,7 +215,6 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     final asyncNotes = ref.watch(noteListProvider);
-    final showNotesQuickList = ref.watch(showNotesQuickListNotifierProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -285,7 +243,6 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
             ),
       body: Column(
         children: [
-          if (showNotesQuickList) _buildSimpleListSection(theme, cs),
           Expanded(
             child: LayoutBuilder(
               builder: (context, constraints) {

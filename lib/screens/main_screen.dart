@@ -6,10 +6,10 @@ import '../providers/settings_providers.dart';
 import '../providers/supabase_provider.dart';
 import '../sync/sync_service.dart';
 import 'home_screen.dart';
-import 'journal_screen.dart';
 import 'notes_screen.dart';
 import 'settings_screen.dart';
 import 'tracker_screen.dart';
+import 'todo_screen.dart';
 import '../widgets/android_exit_confirmation.dart';
 
 class MainScreen extends ConsumerStatefulWidget {
@@ -57,10 +57,10 @@ class _MainScreenState extends ConsumerState<MainScreen> {
       Icons.show_chart,
     ),
     _Destination(
-      _SectionId.dailyLog,
-      'Daily Log',
-      Icons.event_note_outlined,
-      Icons.event_note,
+      _SectionId.todo,
+      'To Do',
+      Icons.format_list_bulleted_outlined,
+      Icons.format_list_bulleted,
     ),
   ];
 
@@ -75,14 +75,13 @@ class _MainScreenState extends ConsumerState<MainScreen> {
     _SectionId.tasks => const HomeScreen(),
     _SectionId.notes => const NotesScreen(),
     _SectionId.tracker => const TrackerScreen(),
-    _SectionId.dailyLog => const JournalScreen(),
+    _SectionId.todo => const TodoScreen(),
     _SectionId.settings => const SettingsScreen(),
   };
 
   @override
   Widget build(BuildContext context) {
     final showTracker = ref.watch(showTrackerSectionNotifierProvider);
-    final showDailyLog = ref.watch(showDailyLogSectionNotifierProvider);
     final platform = Theme.of(context).platform;
     final useRail =
         platform == TargetPlatform.macOS ||
@@ -91,9 +90,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
 
     final mainDestinations = [
       for (final destination in _allMainDestinations)
-        if (destination.id != _SectionId.tracker || showTracker)
-          if (destination.id != _SectionId.dailyLog || showDailyLog)
-            destination,
+        if (destination.id != _SectionId.tracker || showTracker) destination,
     ];
     final destinations = [...mainDestinations, _settingsDestination];
     final visibleIds = destinations.map((d) => d.id).toSet();
@@ -199,7 +196,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
   }
 }
 
-enum _SectionId { tasks, notes, tracker, dailyLog, settings }
+enum _SectionId { tasks, notes, tracker, todo, settings }
 
 class _Destination {
   final _SectionId id;

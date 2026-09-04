@@ -20,7 +20,7 @@ class SimpleListSection extends ConsumerStatefulWidget {
 }
 
 class _SimpleListSectionState extends ConsumerState<SimpleListSection> {
-  final _controller = _QuickListController();
+  final _controller = _TodoListController();
   final _focusNode = FocusNode();
   Timer? _debounce;
   String _lastSavedContent = '';
@@ -114,7 +114,7 @@ class _SimpleListSectionState extends ConsumerState<SimpleListSection> {
       ),
       error: (e, _) => Padding(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-        child: Text('Quick list error: $e'),
+        child: Text('To Do error: $e'),
       ),
       data: (list) {
         if (!_initialized) {
@@ -123,29 +123,23 @@ class _SimpleListSectionState extends ConsumerState<SimpleListSection> {
 
         return Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxHeight: 240),
-            child: Scrollbar(
-              child: SingleChildScrollView(
-                child: TextField(
-                  controller: _controller,
-                  focusNode: _focusNode,
-                  maxLines: null,
-                  minLines: 1,
-                  keyboardType: TextInputType.multiline,
-                  textInputAction: TextInputAction.newline,
-                  inputFormatters: [_bulletFormatter],
-                  style: theme.textTheme.bodyMedium?.copyWith(fontSize: 14),
-                  decoration: const InputDecoration(
-                    border: InputBorder.none,
-                    isDense: true,
-                    contentPadding: EdgeInsets.zero,
-                    hintText: '- Add quick items here',
-                  ),
-                  onChanged: _onChanged,
-                ),
-              ),
+          child: TextField(
+            controller: _controller,
+            focusNode: _focusNode,
+            expands: true,
+            maxLines: null,
+            minLines: null,
+            keyboardType: TextInputType.multiline,
+            textInputAction: TextInputAction.newline,
+            inputFormatters: [_bulletFormatter],
+            style: theme.textTheme.bodyMedium?.copyWith(fontSize: 14),
+            decoration: const InputDecoration(
+              border: InputBorder.none,
+              isDense: true,
+              contentPadding: EdgeInsets.zero,
+              hintText: '- Add a to-do item',
             ),
+            onChanged: _onChanged,
           ),
         );
       },
@@ -167,7 +161,7 @@ String _normalizeBullets(String text) {
       .join('\n');
 }
 
-class _QuickListController extends TextEditingController {
+class _TodoListController extends TextEditingController {
   static const double _iconSize = 18.0;
   static const double _iconGap = 6.0;
 

@@ -83,7 +83,6 @@ class SyncService {
   static const _tables = <_SyncTable>[
     _SyncTable('tasks', 'id'),
     _SyncTable('notes', 'id'),
-    _SyncTable('journal_entries', 'id', localConflict: 'user_id, entry_date'),
     _SyncTable('simple_list', 'user_id'),
     _SyncTable('tracker_metrics', 'id'),
     _SyncTable(
@@ -976,20 +975,6 @@ class SyncService {
       'content',
       'pinned',
       'deleted_at',
-      'created_at',
-      'updated_at',
-      'sync_deleted_at',
-      'sync_status',
-      'last_synced_at',
-      'client_modified_at',
-      'pending_delete',
-      'server_version',
-    },
-    'journal_entries' => {
-      'id',
-      'user_id',
-      'entry_date',
-      'content',
       'created_at',
       'updated_at',
       'sync_deleted_at',

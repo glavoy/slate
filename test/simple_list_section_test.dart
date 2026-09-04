@@ -30,7 +30,7 @@ class _FakeSimpleListNotifier extends SimpleListNotifier {
   );
 }
 
-Future<_FakeSimpleListNotifier> _pumpQuickList(
+Future<_FakeSimpleListNotifier> _pumpTodoList(
   WidgetTester tester, {
   required String initialContent,
 }) async {
@@ -43,9 +43,7 @@ Future<_FakeSimpleListNotifier> _pumpQuickList(
           return fake;
         }),
       ],
-      child: const MaterialApp(
-        home: Scaffold(body: SimpleListSection()),
-      ),
+      child: const MaterialApp(home: Scaffold(body: SimpleListSection())),
     ),
   );
   // Let the async provider deliver its first value.
@@ -57,9 +55,10 @@ TextField _textField(WidgetTester tester) =>
     tester.widget<TextField>(find.byType(TextField));
 
 void main() {
-  testWidgets('remote update is not applied while the field is focused',
-      (tester) async {
-    final fake = await _pumpQuickList(tester, initialContent: '- one\n- two');
+  testWidgets('remote update is not applied while the field is focused', (
+    tester,
+  ) async {
+    final fake = await _pumpTodoList(tester, initialContent: '- one\n- two');
     expect(_textField(tester).controller!.text, '- one\n- two');
 
     await tester.tap(find.byType(TextField));
@@ -74,7 +73,7 @@ void main() {
 
   testWidgets('remote update applies while unfocused and clean, preserving a '
       'clamped cursor', (tester) async {
-    final fake = await _pumpQuickList(
+    final fake = await _pumpTodoList(
       tester,
       initialContent: '- a longer initial list\n- second line',
     );
@@ -96,9 +95,10 @@ void main() {
     expect(controller.selection.baseOffset, '- short'.length);
   });
 
-  testWidgets('remote update is not applied while an edit is pending save',
-      (tester) async {
-    final fake = await _pumpQuickList(tester, initialContent: '- one');
+  testWidgets('remote update is not applied while an edit is pending save', (
+    tester,
+  ) async {
+    final fake = await _pumpTodoList(tester, initialContent: '- one');
 
     await tester.enterText(find.byType(TextField), '- one\n- two');
     await tester.pump();
@@ -116,17 +116,19 @@ void main() {
     expect(fake.saved, contains('- one\n- two'));
   });
 
-  testWidgets('an edit still inside the debounce window is flushed on dispose',
-      (tester) async {
-    final fake = await _pumpQuickList(tester, initialContent: '- one');
+  testWidgets(
+    'an edit still inside the debounce window is flushed on dispose',
+    (tester) async {
+      final fake = await _pumpTodoList(tester, initialContent: '- one');
 
-    await tester.enterText(find.byType(TextField), '- one\n- milk');
-    await tester.pump();
-    expect(fake.saved, isEmpty);
+      await tester.enterText(find.byType(TextField), '- one\n- milk');
+      await tester.pump();
+      expect(fake.saved, isEmpty);
 
-    // Tear the widget down before the 1200ms debounce fires.
-    await tester.pumpWidget(const SizedBox());
+      // Tear the widget down before the 1200ms debounce fires.
+      await tester.pumpWidget(const SizedBox());
 
-    expect(fake.saved, ['- one\n- milk']);
-  });
+      expect(fake.saved, ['- one\n- milk']);
+    },
+  );
 }
