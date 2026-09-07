@@ -1,16 +1,14 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import 'package:flutter_quill/flutter_quill.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/simple_list_providers.dart';
+import 'rich_text_editor.dart';
 
-const _bullet = '- ';
-const _legacyBullet = '• ';
 const _debounceDuration = Duration(milliseconds: 1200);
 const _idleBeforeRemoteSync = Duration(seconds: 3);
-final _bulletFormatter = _BulletFormatter();
 
 class SimpleListSection extends ConsumerStatefulWidget {
   const SimpleListSection({super.key});
@@ -20,20 +18,39 @@ class SimpleListSection extends ConsumerStatefulWidget {
 }
 
 class _SimpleListSectionState extends ConsumerState<SimpleListSection> {
-  final _controller = _TodoListController();
+  late final QuillController _quill;
   final _focusNode = FocusNode();
+  final _scrollController = ScrollController();
   Timer? _debounce;
-  String _lastSavedContent = '';
+  String _lastSavedDocument = '';
+  String _lastRemoteContent = '';
   DateTime _lastLocalEdit = DateTime.fromMillisecondsSinceEpoch(0);
   bool _initialized = false;
+  bool _applyingRemote = false;
 
-  bool get _isDirty => _initialized && _controller.text != _lastSavedContent;
+  late final Map<Type, Action<Intent>> _deleteOverrides;
+
+  String get _serializedContent => serializeDocument(_quill);
+  bool get _isDirty => _initialized && _serializedContent != _lastSavedDocument;
+
+  @override
+  void initState() {
+    super.initState();
+    _quill = createSelectionSafeQuillController();
+    _deleteOverrides = {
+      DeleteCharacterIntent: SelectionSafeDeleteAction<DeleteCharacterIntent>(
+        _quill,
+      ),
+      DeleteToNextWordBoundaryIntent:
+          SelectionSafeDeleteAction<DeleteToNextWordBoundaryIntent>(_quill),
+      DeleteToLineBreakIntent:
+          SelectionSafeDeleteAction<DeleteToLineBreakIntent>(_quill),
+    };
+    _quill.addListener(_onDocumentChanged);
+  }
 
   @override
   void deactivate() {
-    // Flush here rather than in dispose: ref is no longer usable once the
-    // widget is unmounted, and an edit inside the debounce window would
-    // otherwise be lost.
     _debounce?.cancel();
     _flushIfDirty();
     super.deactivate();
@@ -42,52 +59,62 @@ class _SimpleListSectionState extends ConsumerState<SimpleListSection> {
   @override
   void dispose() {
     _debounce?.cancel();
-    _controller.dispose();
+    _quill.removeListener(_onDocumentChanged);
+    _quill.dispose();
     _focusNode.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
-  void _flushIfDirty() {
-    if (!_isDirty) return;
-    final value = _controller.text;
-    _lastSavedContent = value;
-    ref.read(simpleListNotifierProvider.notifier).save(value);
-  }
-
-  void _onChanged(String value) {
+  void _onDocumentChanged() {
+    if (!_initialized || _applyingRemote || !_isDirty) return;
     _lastLocalEdit = DateTime.now();
     _debounce?.cancel();
     _debounce = Timer(_debounceDuration, _flushIfDirty);
   }
 
+  void _flushIfDirty() {
+    if (!_isDirty) return;
+    final content = _serializedContent;
+    _lastSavedDocument = content;
+    _lastRemoteContent = content;
+    ref.read(simpleListNotifierProvider.notifier).save(content);
+  }
+
   void _initialize(String content) {
-    final initial = _normalizeBullets(content.isEmpty ? _bullet : content);
-    _controller.text = initial;
-    _lastSavedContent = initial;
+    _applyingRemote = true;
+    try {
+      _quill.document = documentFromStoredContent(content);
+    } finally {
+      _applyingRemote = false;
+    }
+    _lastSavedDocument = _serializedContent;
+    _lastRemoteContent = content;
     _initialized = true;
   }
 
   void _applyRemote(String remoteContent) {
-    remoteContent = _normalizeBullets(remoteContent);
-    if (remoteContent == _controller.text) return;
-    if (remoteContent == _lastSavedContent) return;
-    // Never rewrite the field while the user is in it or has unsaved edits —
-    // a sync pass fires after every push/pull and used to snap the caret to
-    // the end of the text right before the user started typing.
-    if (_focusNode.hasFocus) return;
+    if (remoteContent == _lastRemoteContent || _focusNode.hasFocus) return;
     if (_isDirty || (_debounce?.isActive ?? false)) return;
     if (DateTime.now().difference(_lastLocalEdit) < _idleBeforeRemoteSync) {
       return;
     }
-    final cursor = _controller.selection.baseOffset.clamp(
-      0,
-      remoteContent.length,
-    );
-    _controller.value = TextEditingValue(
-      text: remoteContent,
-      selection: TextSelection.collapsed(offset: cursor),
-    );
-    _lastSavedContent = remoteContent;
+    _applyingRemote = true;
+    try {
+      final previousOffset = _quill.selection.baseOffset;
+      _quill.document = documentFromStoredContent(remoteContent);
+      final maxOffset = _quill.document.length - 1;
+      _quill.updateSelection(
+        TextSelection.collapsed(
+          offset: previousOffset.clamp(0, maxOffset < 0 ? 0 : maxOffset),
+        ),
+        ChangeSource.local,
+      );
+    } finally {
+      _applyingRemote = false;
+    }
+    _lastSavedDocument = _serializedContent;
+    _lastRemoteContent = remoteContent;
   }
 
   @override
@@ -95,194 +122,78 @@ class _SimpleListSectionState extends ConsumerState<SimpleListSection> {
     final theme = Theme.of(context);
     final asyncList = ref.watch(simpleListNotifierProvider);
 
-    ref.listen(simpleListNotifierProvider, (prev, next) {
+    ref.listen(simpleListNotifierProvider, (previous, next) {
       next.whenData((list) {
         if (!_initialized) {
           _initialize(list.content);
-          return;
+        } else {
+          _applyRemote(list.content);
         }
-        _applyRemote(list.content);
       });
     });
 
     return asyncList.when(
       skipLoadingOnReload: true,
       skipLoadingOnRefresh: true,
-      loading: () => const Padding(
-        padding: EdgeInsets.symmetric(vertical: 24),
-        child: Center(child: CircularProgressIndicator()),
-      ),
-      error: (e, _) => Padding(
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (error, _) => Padding(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-        child: Text('To Do error: $e'),
+        child: Text('To Do error: $error'),
       ),
       data: (list) {
-        if (!_initialized) {
-          _initialize(list.content);
-        }
-
-        return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-          child: TextField(
-            controller: _controller,
-            focusNode: _focusNode,
-            expands: true,
-            maxLines: null,
-            minLines: null,
-            keyboardType: TextInputType.multiline,
-            textInputAction: TextInputAction.newline,
-            inputFormatters: [_bulletFormatter],
-            style: theme.textTheme.bodyMedium?.copyWith(fontSize: 14),
-            decoration: const InputDecoration(
-              border: InputBorder.none,
-              isDense: true,
-              contentPadding: EdgeInsets.zero,
-              hintText: '- Add a to-do item',
+        if (!_initialized) _initialize(list.content);
+        return Column(
+          children: [
+            Expanded(
+              child: Actions(
+                actions: _deleteOverrides,
+                child: QuillEditor(
+                  controller: _quill,
+                  focusNode: _focusNode,
+                  scrollController: _scrollController,
+                  config: QuillEditorConfig(
+                    placeholder: 'Start writing…',
+                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+                    expands: true,
+                    scrollable: true,
+                    customStyles: DefaultStyles(
+                      paragraph: DefaultTextBlockStyle(
+                        (theme.textTheme.bodyLarge ??
+                                const TextStyle(fontSize: 16))
+                            .copyWith(height: 1.25),
+                        const HorizontalSpacing(0, 0),
+                        const VerticalSpacing(0, 0),
+                        const VerticalSpacing(0, 0),
+                        null,
+                      ),
+                      h2: DefaultTextBlockStyle(
+                        (theme.textTheme.bodyLarge ??
+                                const TextStyle(fontSize: 16))
+                            .copyWith(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w600,
+                              height: 1.25,
+                            ),
+                        const HorizontalSpacing(0, 0),
+                        const VerticalSpacing(6, 0),
+                        const VerticalSpacing(0, 0),
+                        null,
+                      ),
+                    ),
+                    // ignore: experimental_member_use
+                    onKeyPressed: (event, _) =>
+                        handleSelectionSafeDeleteKey(_quill, event),
+                  ),
+                ),
+              ),
             ),
-            onChanged: _onChanged,
-          ),
+            RichTextFormatToolbar(
+              controller: _quill,
+              editorFocusNode: _focusNode,
+            ),
+          ],
         );
       },
     );
-  }
-}
-
-String _normalizeBullets(String text) {
-  if (text == _legacyBullet.trim()) return _bullet;
-  return text
-      .split('\n')
-      .map((line) {
-        if (line == _legacyBullet.trim()) return _bullet;
-        if (line.startsWith(_legacyBullet)) {
-          return _bullet + line.substring(_legacyBullet.length);
-        }
-        return line;
-      })
-      .join('\n');
-}
-
-class _TodoListController extends TextEditingController {
-  static const double _iconSize = 18.0;
-  static const double _iconGap = 6.0;
-
-  @override
-  TextSpan buildTextSpan({
-    required BuildContext context,
-    TextStyle? style,
-    required bool withComposing,
-  }) {
-    final base =
-        style ?? Theme.of(context).textTheme.bodyMedium ?? const TextStyle();
-    final colorScheme = Theme.of(context).colorScheme;
-    final lines = text.split('\n');
-    final children = <InlineSpan>[];
-
-    for (var i = 0; i < lines.length; i++) {
-      if (i > 0) children.add(const TextSpan(text: '\n'));
-
-      final line = lines[i];
-      if (!line.startsWith(_bullet)) {
-        children.add(TextSpan(text: line));
-        continue;
-      }
-
-      children.add(
-        WidgetSpan(
-          alignment: PlaceholderAlignment.middle,
-          baseline: TextBaseline.alphabetic,
-          child: SizedBox(
-            width: _iconSize,
-            height: _iconSize,
-            child: Center(
-              child: Icon(
-                Icons.circle,
-                size: 7.0,
-                color: colorScheme.onSurface.withValues(alpha: 0.7),
-              ),
-            ),
-          ),
-        ),
-      );
-      children.add(
-        const WidgetSpan(
-          alignment: PlaceholderAlignment.middle,
-          child: SizedBox(width: _iconGap, height: _iconSize),
-        ),
-      );
-
-      if (line.length > _bullet.length) {
-        children.add(TextSpan(text: line.substring(_bullet.length)));
-      }
-    }
-
-    return TextSpan(style: base, children: children);
-  }
-}
-
-class _BulletFormatter extends TextInputFormatter {
-  @override
-  TextEditingValue formatEditUpdate(
-    TextEditingValue oldValue,
-    TextEditingValue newValue,
-  ) {
-    if (newValue.text.isEmpty) {
-      return const TextEditingValue(
-        text: _bullet,
-        selection: TextSelection.collapsed(offset: _bullet.length),
-      );
-    }
-
-    final normalized = _normalizeBullets(newValue.text);
-    if (normalized != newValue.text) {
-      final delta = normalized.length - newValue.text.length;
-      return TextEditingValue(
-        text: normalized,
-        selection: TextSelection.collapsed(
-          offset: (newValue.selection.baseOffset + delta).clamp(
-            0,
-            normalized.length,
-          ),
-        ),
-      );
-    }
-
-    // User backspaced the trailing space from the first bullet (-  → -); fix
-    // in-place instead of prepending a second bullet symbol.
-    if (newValue.text.startsWith('-') && !newValue.text.startsWith(_bullet)) {
-      final fixed = _bullet + newValue.text.substring(1);
-      final offset = (newValue.selection.baseOffset + 1).clamp(0, fixed.length);
-      return TextEditingValue(
-        text: fixed,
-        selection: TextSelection.collapsed(offset: offset),
-      );
-    }
-
-    if (!newValue.text.startsWith(_bullet)) {
-      final fixed = _bullet + newValue.text;
-      final delta = _bullet.length;
-      return TextEditingValue(
-        text: fixed,
-        selection: TextSelection.collapsed(
-          offset: newValue.selection.baseOffset + delta,
-        ),
-      );
-    }
-
-    final inserted = newValue.text.length - oldValue.text.length;
-    if (inserted == 1 && newValue.selection.isCollapsed) {
-      final cursor = newValue.selection.baseOffset;
-      if (cursor > 0 && newValue.text[cursor - 1] == '\n') {
-        final after = newValue.text.substring(cursor);
-        if (!after.startsWith(_bullet)) {
-          final updated = newValue.text.substring(0, cursor) + _bullet + after;
-          return TextEditingValue(
-            text: updated,
-            selection: TextSelection.collapsed(offset: cursor + _bullet.length),
-          );
-        }
-      }
-    }
-
-    return newValue;
   }
 }

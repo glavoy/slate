@@ -6,6 +6,7 @@ import 'package:flutter_quill/flutter_quill.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:slate/models/note.dart';
 import 'package:slate/widgets/note_editor_pane.dart';
+import 'package:slate/widgets/rich_text_editor.dart';
 
 /// Pumps a QuillEditor wrapped in the same delete-override Actions the note
 /// editor pane installs, focused and ready for key events.

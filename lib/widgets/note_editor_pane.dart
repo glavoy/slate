@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_quill/flutter_quill.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -10,6 +9,7 @@ import '../models/note.dart';
 import '../providers/note_providers.dart';
 import '../providers/supabase_provider.dart';
 import '../repositories/note_repository.dart';
+import 'rich_text_editor.dart';
 
 /// Plain-text preview for a note body. Supports both the new Quill Delta JSON
 /// format and legacy plain-text content (older notes from before the editor
@@ -55,134 +55,6 @@ String noteBodyPreview(String content) {
     title: title,
     preview: preview.length > 80 ? '${preview.substring(0, 80)}…' : preview,
   );
-}
-
-Document _documentFromContent(String content) {
-  if (content.trim().isEmpty) return Document();
-  try {
-    final decoded = jsonDecode(content);
-    if (decoded is List) return Document.fromJson(decoded);
-  } catch (_) {
-    /* legacy plain text */
-  }
-  // Legacy notes seed as a single plain-text insert so they at least show up.
-  return Document()..insert(0, content);
-}
-
-void focusQuillEditor(QuillController controller, FocusNode editorFocusNode) {
-  if (!editorFocusNode.canRequestFocus) return;
-
-  final selection = controller.selection;
-  final maxOffset = controller.document.length - 1;
-  final safeMaxOffset = maxOffset < 0 ? 0 : maxOffset;
-  final safeSelection = selection.isValid
-      ? selection.copyWith(
-          baseOffset: selection.baseOffset.clamp(0, safeMaxOffset),
-          extentOffset: selection.extentOffset.clamp(0, safeMaxOffset),
-        )
-      : const TextSelection.collapsed(offset: 0);
-  if (safeSelection != selection) {
-    controller.updateSelection(safeSelection, ChangeSource.local);
-  }
-  editorFocusNode.requestFocus();
-}
-
-bool deleteExpandedQuillSelection(QuillController controller) {
-  final selection = controller.selection;
-  if (!selection.isValid || selection.isCollapsed) return false;
-
-  controller.replaceText(
-    selection.start,
-    selection.end - selection.start,
-    '',
-    TextSelection.collapsed(offset: selection.start),
-  );
-  return true;
-}
-
-/// Creates the note editor's controller with a guard around Quill's lowest
-/// public text-replacement hook. Native IMEs can submit an expanded-selection
-/// delete as a whole [TextEditingValue] update, which bypasses Flutter's
-/// keyboard intents and Quill's `onKeyPressed` callback. Quill then computes a
-/// diff of the complete before/after documents; that path is unreliable for
-/// large replacements on some platforms.
-///
-/// When the incoming replacement is precisely the currently selected text and
-/// contains no new content, delete it directly and return `false` to prevent
-/// Quill from processing the same replacement through its diff pipeline.
-QuillController createSelectionSafeQuillController({
-  Document? document,
-  TextSelection selection = const TextSelection.collapsed(offset: 0),
-}) {
-  late final QuillController controller;
-  controller = QuillController(
-    document: document ?? Document(),
-    selection: selection,
-    onReplaceText: (index, length, replacement) {
-      final currentSelection = controller.selection;
-      final isSelectionDelete =
-          replacement is String &&
-          replacement.isEmpty &&
-          length > 0 &&
-          currentSelection.isValid &&
-          !currentSelection.isCollapsed &&
-          index == currentSelection.start &&
-          length == currentSelection.end - currentSelection.start;
-      if (!isSelectionDelete) return true;
-
-      controller.document.delete(index, length);
-      controller.updateSelection(
-        TextSelection.collapsed(offset: index),
-        ChangeSource.local,
-      );
-      return false;
-    },
-  );
-  return controller;
-}
-
-/// Handles desktop delete keys before they enter the platform text-input
-/// pipeline. This complements [SelectionSafeDeleteAction]: Windows delivers
-/// these keys through the editor's hardware-key callback, while macOS can also
-/// deliver them through native selector intents.
-KeyEventResult? handleSelectionSafeDeleteKey(
-  QuillController controller,
-  KeyEvent event,
-) {
-  if (event is! KeyDownEvent && event is! KeyRepeatEvent) return null;
-  if (event.logicalKey != LogicalKeyboardKey.backspace &&
-      event.logicalKey != LogicalKeyboardKey.delete) {
-    return null;
-  }
-
-  return deleteExpandedQuillSelection(controller)
-      ? KeyEventResult.handled
-      : null;
-}
-
-/// Deletes a non-collapsed selection directly through the Quill controller
-/// instead of flutter_quill's plain-text diff pipeline
-/// (`TextEditingValue.replaced` → `getDiff` → `replaceTextWithEmbeds`), which
-/// can leave the caret past the end of the document after a full-document
-/// delete and desync the IME state — after which delete/format keystrokes
-/// silently stop working. Registered above the editor so flutter_quill's
-/// `Action.overridable` wrappers defer to it; collapsed-cursor deletes are
-/// delegated back to the quill default via [callingAction] (preserving its
-/// backspace style-memory behavior).
-class SelectionSafeDeleteAction<T extends DirectionalTextEditingIntent>
-    extends Action<T> {
-  SelectionSafeDeleteAction(this.controller);
-
-  final QuillController controller;
-
-  @override
-  Object? invoke(T intent) {
-    if (deleteExpandedQuillSelection(controller)) return null;
-    return callingAction?.invoke(intent);
-  }
-
-  @override
-  bool get isActionEnabled => true;
 }
 
 /// Bridge so the AppBar can invoke pane-level actions (focus title, confirm
@@ -304,8 +176,7 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
     super.dispose();
   }
 
-  String get _serializedContent =>
-      jsonEncode(_quill.document.toDelta().toJson());
+  String get _serializedContent => serializeDocument(_quill);
 
   bool get _isDirty =>
       _initialized &&
@@ -433,7 +304,7 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
   void _applyRemoteNoteIfClean(Note note) {
     if (!_initialized) {
       _titleController.text = note.title;
-      _quill.document = _documentFromContent(note.content);
+      _quill.document = documentFromStoredContent(note.content);
       _lastSavedTitle = note.title;
       _lastSavedContent = _serializedContent;
       _lastAppliedRemoteUpdate = note.updatedAt;
@@ -465,7 +336,7 @@ class _NoteEditorPaneState extends ConsumerState<NoteEditorPane> {
     try {
       final previousOffset = _quill.selection.baseOffset;
       _titleController.text = note.title;
-      _quill.document = _documentFromContent(note.content);
+      _quill.document = documentFromStoredContent(note.content);
       final maxOffset = _quill.document.length - 1;
       _quill.updateSelection(
         TextSelection.collapsed(

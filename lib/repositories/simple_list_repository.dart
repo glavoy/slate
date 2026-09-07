@@ -28,7 +28,7 @@ class SimpleListRepository {
     // existing list from another device.
     return SimpleList(
       userId: userId,
-      content: '- ',
+      content: '',
       updatedAt: DateTime.now().toUtc(),
     );
   }
