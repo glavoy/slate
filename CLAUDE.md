@@ -11,6 +11,10 @@ flutter run -d macos
 # Run tests
 flutter test
 
+# Run a single test file, or a single test by name
+flutter test test/sync_two_device_test.dart
+flutter test test/sync_two_device_test.dart --plain-name 'conflict'
+
 # Lint
 flutter analyze
 
@@ -24,11 +28,14 @@ flutter build apk --release
 flutter build macos --release
 ```
 
+Run `dart format .` and `flutter analyze` before committing. Release versioning convention
+(user-facing version + always-incrementing build number) is documented in `build.txt`.
+
 `*.freezed.dart` and `*.g.dart` are gitignored — always regenerate locally after model/provider changes.
 
 ## Architecture
 
-**Navigation:** No router. `MainScreen` uses an `IndexedStack` (all visible sections stay mounted simultaneously) with adaptive navigation — `NavigationRail` on macOS/desktop, `NavigationBar` on Android. The primary destinations are Tasks, Notes, Tracker, and To Do; Settings is also available from the navigation UI.
+**Navigation:** No router. `MainScreen` uses an `IndexedStack` (all visible sections stay mounted simultaneously) with adaptive navigation — `NavigationRail` on macOS/desktop, `NavigationBar` on Android. The primary destinations are Tasks, Notes, Tracker, and To Do; Settings is also available from the navigation UI. Section-to-screen names do not all match: Tasks is `HomeScreen` (`lib/screens/home_screen.dart`) and To Do is `TodoScreen`, a thin wrapper around `SimpleListSection` backed by the `simple_list` table.
 
 **State:** Riverpod with code generation (`@riverpod`). The standard pattern throughout is:
 
@@ -43,6 +50,10 @@ freezed model  →  Repository (local SQLite CRUD + sync scheduling)  →  @rive
 **Sync conflict resolution:** The server is the single ordering authority: every table has an integer `version` column bumped by a server trigger, and each local row stores the last server version it was based on (`server_version`, NULL = never pushed). Pushes are compare-and-swap (`UPDATE … WHERE version = <baseline>` via `SyncRemote.casUpdate`) so a stale device can never silently overwrite a newer row; pull applies a remote row only when `remote.version > local.server_version`. True concurrent edits are resolved in `SyncService._resolveConflict`: winner by `client_modified_at` (client clock vs client clock), and for **notes** the losing content is preserved as a new "(conflicted copy …)" note — never silently discarded. A pending note edit also wins over a remote delete (the note is resurrected). The pull cursor is a per-table high-water mark (`pull_hwm_<table>` in `sync_meta`) on server `updated_at`. Soft-delete uses `sync_deleted_at` tombstones so deletes propagate. `SyncRemote` (`lib/sync/sync_remote.dart`) abstracts the Supabase calls; `test/sync_two_device_test.dart` runs two simulated devices against a `FakeSyncRemote` — extend those scenarios when touching the engine.
 
 **Settings providers:** All `keepAlive: true` providers (`ThemeNotifier`, `DateFormatNotifier`, `TimeFormatNotifier`, etc.) require an explicit `.init()` call in `main()` before `runApp`. The `ProviderContainer` is initialized there and passed to `UncontrolledProviderScope`.
+
+**Rich text:** `lib/widgets/rich_text_editor.dart` holds the shared `flutter_quill` helpers used by both the Notes editor and the To Do list — `documentFromStoredContent` (tolerates legacy plain-text rows), `serializeDocument`, focus/selection fixups. Use these rather than touching Quill's `Document`/`Delta` APIs directly.
+
+**Sign-out boundary:** All sign-out paths go through `SessionService` (`lib/services/session_service.dart`), which signs out of Supabase, pauses sync without flushing pending writes, and clears cached local data. `app.dart` calls `clearSignedOutData()` as a safety net for externally initiated sign-outs. Never call `client.auth.signOut()` directly.
 
 **Notes editor:** Uses `flutter_quill` for rich-text editing. The note body is stored in the `notes.content` TEXT column as a Quill Delta encoded with `jsonEncode(document.toDelta().toJson())`. The title is a separate plain `TextField` above the editor. Notes have a soft-delete (`deleted_at`) field for trash/restore. For previews / search, use the `noteBodyPreview(String content)` helper in `lib/widgets/note_editor_pane.dart`.
 
@@ -84,3 +95,11 @@ abstract class Env {
 Use the Supabase CLI for all schema changes. Create a timestamped migration with `supabase migration new <description>`, validate it against a fresh local stack with `supabase start` and `supabase db reset`, then deploy it with `supabase db push`. Verify local and remote history with `supabase migration list`. `supabase/slate.json` is the checked-in snapshot of the linked remote public schema; regenerate it after a schema change with `supabase db dump --linked --schema public` and update the snapshot.
 
 The local SQLite schema mirrors these tables and adds sync bookkeeping columns: `sync_status` (`'pending'`/`'synced'`), `client_modified_at`, `last_synced_at`, `sync_deleted_at`, `pending_delete`. See `lib/local/local_database.dart` for the full schema.
+
+## Other docs in the repo
+
+`AGENTS.md` covers coding style and PR conventions. `README.md` is a user-facing feature
+overview and is partly stale — it still describes a Journal section (removed, see
+`supabase/migrations/20260904000000_remove_journal_entries.sql`) and repositories talking
+directly to Supabase (they are now local-first via SQLite). Trust this file and the code
+over `README.md` on architecture.
