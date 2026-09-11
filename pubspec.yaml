@@ -2,7 +2,7 @@ name: slate
 description: "A personal task manager"
 publish_to: 'none'
 
-version: 1.0.10+5
+version: 1.1.0+6
 
 environment:
   sdk: ^3.10.8

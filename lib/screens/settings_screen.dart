@@ -7,6 +7,7 @@ import '../providers/settings_providers.dart';
 import '../providers/supabase_provider.dart';
 import '../providers/theme_provider.dart';
 import '../services/session_service.dart';
+import '../utils/date_utils.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -18,6 +19,8 @@ class SettingsScreen extends ConsumerWidget {
     final timeStyle = ref.watch(timeFormatNotifierProvider);
     final showCompletedTasks = ref.watch(showCompletedTasksNotifierProvider);
     final showTrackerSection = ref.watch(showTrackerSectionNotifierProvider);
+    final taskAlertsEnabled = ref.watch(taskAlertsEnabledNotifierProvider);
+    final alertDayStart = ref.watch(taskAlertDayStartNotifierProvider);
     final user = ref.watch(currentUserProvider);
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
@@ -108,6 +111,42 @@ class SettingsScreen extends ConsumerWidget {
             onChanged: (value) => ref
                 .read(showCompletedTasksNotifierProvider.notifier)
                 .set(value),
+          ),
+          SwitchListTile(
+            secondary: const Icon(Icons.notifications_active_outlined),
+            title: const Text('Due task alerts'),
+            subtitle: const Text('Show a banner when a task comes due'),
+            value: taskAlertsEnabled,
+            onChanged: (value) =>
+                ref.read(taskAlertsEnabledNotifierProvider.notifier).set(value),
+          ),
+          ListTile(
+            enabled: taskAlertsEnabled,
+            leading: const Icon(Icons.wb_twilight),
+            title: const Text('Alert all-day tasks at'),
+            subtitle: const Text('Used when a task has no due time'),
+            trailing: DropdownButton<TimeOfDay>(
+              value: taskAlertDayStartChoices.contains(alertDayStart)
+                  ? alertDayStart
+                  : defaultDueTime,
+              underline: const SizedBox.shrink(),
+              onChanged: taskAlertsEnabled
+                  ? (v) {
+                      if (v != null) {
+                        ref
+                            .read(taskAlertDayStartNotifierProvider.notifier)
+                            .set(v);
+                      }
+                    }
+                  : null,
+              items: [
+                for (final t in taskAlertDayStartChoices)
+                  DropdownMenuItem(
+                    value: t,
+                    child: Text(formatTimeAs(t, timeStyle)),
+                  ),
+              ],
+            ),
           ),
 
           const Divider(height: 24),

@@ -5,6 +5,7 @@ import '../providers/settings_providers.dart';
 import '../providers/supabase_provider.dart';
 import '../services/session_service.dart';
 import '../sync/sync_service.dart';
+import '../widgets/due_task_banner.dart';
 import 'home_screen.dart';
 import 'notes_screen.dart';
 import 'settings_screen.dart';
@@ -105,9 +106,19 @@ class _MainScreenState extends ConsumerState<MainScreen> {
     final selectedIndex = destinations.indexWhere(
       (d) => d.id == selectedSection,
     );
-    final stack = IndexedStack(
-      index: selectedIndex,
-      children: [for (final d in destinations) _screenFor(d.id)],
+    // The banner sits above every section's own Scaffold/AppBar so it reads as
+    // app-level, stays visible wherever you are, and cannot collide with the
+    // per-section FABs.
+    final stack = Column(
+      children: [
+        const DueTaskBanner(),
+        Expanded(
+          child: IndexedStack(
+            index: selectedIndex,
+            children: [for (final d in destinations) _screenFor(d.id)],
+          ),
+        ),
+      ],
     );
 
     if (useRail) {

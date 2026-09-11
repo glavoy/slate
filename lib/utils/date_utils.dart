@@ -14,6 +14,13 @@ bool isOverdue(DateTime dueDate, [String? dueTime]) {
   return dueMidnight.isBefore(todayMidnight);
 }
 
+// Combines a date-only due date with its due time, falling back to [dayStart]
+// for all-day tasks. Returns a local wall-clock instant.
+DateTime resolveDueAt(DateTime dueDate, String? dueTime, TimeOfDay dayStart) {
+  final t = dueTime != null ? parseTime(dueTime) : dayStart;
+  return DateTime(dueDate.year, dueDate.month, dueDate.day, t.hour, t.minute);
+}
+
 DateTime nextOccurrence(DateTime from, RecurrenceType recurrence) =>
     switch (recurrence) {
       RecurrenceType.daily => DateTime(from.year, from.month, from.day + 1),

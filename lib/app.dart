@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'providers/auth_provider.dart';
+import 'providers/task_providers.dart';
 import 'providers/theme_provider.dart';
 import 'services/session_service.dart';
 import 'screens/auth_screen.dart';
@@ -49,6 +50,9 @@ class _SlateAppState extends ConsumerState<SlateApp>
         // Foreground: re-subscribe realtime, restart the safety timer, and
         // reconcile with the other device.
         SyncService.instance.syncSoonAfterResume();
+        // Re-evaluate due alerts at once rather than waiting out the
+        // one-minute tick after waking from sleep.
+        ref.invalidate(taskListProvider);
       case AppLifecycleState.paused:
         // Background: flush pending writes, then drop the realtime socket and
         // foreground timer so a backgrounded app holds no open connection.

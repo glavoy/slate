@@ -26,6 +26,8 @@ void main() async {
     container.read(showCompletedTasksNotifierProvider.notifier).init(),
     container.read(showTrackerSectionNotifierProvider.notifier).init(),
     container.read(lastMainSectionNotifierProvider.notifier).init(),
+    container.read(taskAlertsEnabledNotifierProvider.notifier).init(),
+    container.read(taskAlertDayStartNotifierProvider.notifier).init(),
   ]);
 
   runApp(

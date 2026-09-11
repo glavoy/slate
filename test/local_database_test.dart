@@ -65,6 +65,13 @@ void main() {
       ''',
       ['entry-1', 'metric-1', 'user-1', 1.0, timestamp, timestamp, timestamp],
     );
+    local.execute(
+      '''
+      INSERT INTO task_alerts (task_id, due_at, dismissed_at)
+      VALUES (?, ?, ?)
+      ''',
+      ['task-1', '2026-09-04T08:00:00.000', timestamp],
+    );
     local.setMeta('pull_hwm_tasks', timestamp);
 
     local.clearCachedData();
@@ -75,6 +82,7 @@ void main() {
       'simple_list',
       'tracker_metrics',
       'tracker_entries',
+      'task_alerts',
     ]) {
       expect(local.select('SELECT * FROM $table'), isEmpty);
     }

@@ -1,5 +1,8 @@
+import 'package:flutter/material.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import '../utils/date_utils.dart';
 
 part 'settings_providers.g.dart';
 
@@ -8,6 +11,8 @@ const _timeFormatKey = 'time_format';
 const _showCompletedTasksKey = 'show_completed_tasks';
 const _showTrackerSectionKey = 'show_tracker_section';
 const _lastMainSectionKey = 'last_main_section';
+const _taskAlertsEnabledKey = 'task_alerts_enabled';
+const _taskAlertDayStartKey = 'task_alert_day_start';
 
 const defaultMainSectionName = 'tasks';
 const mainSectionNames = <String>{
@@ -138,8 +143,61 @@ class LastMainSection extends _$LastMainSection {
   }
 }
 
+/// Hours offered for the all-day task alert time.
+const taskAlertDayStartChoices = <TimeOfDay>[
+  TimeOfDay(hour: 6, minute: 0),
+  TimeOfDay(hour: 7, minute: 0),
+  TimeOfDay(hour: 8, minute: 0),
+  TimeOfDay(hour: 9, minute: 0),
+  TimeOfDay(hour: 10, minute: 0),
+  TimeOfDay(hour: 12, minute: 0),
+];
+
+@Riverpod(keepAlive: true)
+class TaskAlertsEnabledNotifier extends _$TaskAlertsEnabledNotifier {
+  @override
+  bool build() => true;
+
+  Future<void> init() async {
+    final prefs = await SharedPreferences.getInstance();
+    state = prefs.getBool(_taskAlertsEnabledKey) ?? true;
+  }
+
+  Future<void> set(bool value) async {
+    state = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_taskAlertsEnabledKey, value);
+  }
+}
+
+/// When an all-day task (no due time) raises its in-app alert.
+@Riverpod(keepAlive: true)
+class TaskAlertDayStartNotifier extends _$TaskAlertDayStartNotifier {
+  @override
+  TimeOfDay build() => defaultDueTime;
+
+  Future<void> init() async {
+    final prefs = await SharedPreferences.getInstance();
+    final stored = prefs.getString(_taskAlertDayStartKey);
+    if (stored == null) return;
+    try {
+      state = parseTime(stored);
+    } catch (_) {
+      state = defaultDueTime;
+    }
+  }
+
+  Future<void> set(TimeOfDay value) async {
+    state = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_taskAlertDayStartKey, timeOfDayToString(value));
+  }
+}
+
 const dateFormatNotifierProvider = dateFormatProvider;
 const timeFormatNotifierProvider = timeFormatProvider;
 const showCompletedTasksNotifierProvider = showCompletedTasksProvider;
 const showTrackerSectionNotifierProvider = showTrackerSectionProvider;
 const lastMainSectionNotifierProvider = lastMainSectionProvider;
+const taskAlertsEnabledNotifierProvider = taskAlertsEnabledProvider;
+const taskAlertDayStartNotifierProvider = taskAlertDayStartProvider;

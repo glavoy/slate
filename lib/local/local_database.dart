@@ -138,6 +138,17 @@ class LocalDatabase {
       );
     ''');
 
+    // Local-only: in-app due alert state never leaves this device, so this
+    // table is deliberately absent from _syncedTables.
+    db.execute('''
+      CREATE TABLE IF NOT EXISTS task_alerts (
+        task_id TEXT PRIMARY KEY,
+        due_at TEXT NOT NULL,
+        snoozed_until TEXT,
+        dismissed_at TEXT
+      );
+    ''');
+
     _migrateSchema();
   }
 
@@ -237,6 +248,7 @@ class LocalDatabase {
       for (final table in _syncedTables.reversed) {
         execute('DELETE FROM $table');
       }
+      execute('DELETE FROM task_alerts');
       execute('DELETE FROM sync_meta');
     });
   }
