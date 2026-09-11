@@ -63,6 +63,8 @@ freezed model  →  Repository (local SQLite CRUD + sync scheduling)  →  @rive
 
 **Recurring tasks:** Completing a recurring task writes `series_id` and inserts the next occurrence in a single SQLite transaction inside `TaskRepository.markDone`. Future occurrences are projected on the calendar view.
 
+**Due task alerts:** In-app only — there are deliberately no macOS/Android/Windows OS notifications. `DueTaskBanner` (`lib/widgets/due_task_banner.dart`) is mounted above the `IndexedStack` in `MainScreen`, so it shows in every section and sits above each screen's own `AppBar`. The "is this task alerting right now?" decision is the pure `shouldAlert` in `lib/services/task_alert_rules.dart` (no DB, no Riverpod) — keep it that way so it stays unit-testable and so an OS notification path could reuse it later. `dueAlertsProvider` derives from `taskListProvider`, which already self-invalidates every minute, so **do not add another timer**; worst-case latency on a due instant or an expiring snooze is ~60s. All-day tasks (no `due_time`) resolve their due instant against a configurable day-start hour via `resolveDueAt` in `lib/utils/date_utils.dart`. Alerts older than `alertBackfillWindow` (24h) are suppressed so a week away from the app doesn't produce a wall of banners.
+
 **Auto-save pattern** (Notes editor and To Do list):
 
 ```dart
@@ -95,6 +97,8 @@ abstract class Env {
 Use the Supabase CLI for all schema changes. Create a timestamped migration with `supabase migration new <description>`, validate it against a fresh local stack with `supabase start` and `supabase db reset`, then deploy it with `supabase db push`. Verify local and remote history with `supabase migration list`. `supabase/slate.json` is the checked-in snapshot of the linked remote public schema; regenerate it after a schema change with `supabase db dump --linked --schema public` and update the snapshot.
 
 The local SQLite schema mirrors these tables and adds sync bookkeeping columns: `sync_status` (`'pending'`/`'synced'`), `client_modified_at`, `last_synced_at`, `sync_deleted_at`, `pending_delete`. See `lib/local/local_database.dart` for the full schema.
+
+`task_alerts` is the one **local-only** table — in-app due alert state (snooze/dismiss) that never leaves the device. It has no Supabase counterpart and is deliberately absent from `_syncedTables`, `SyncService._columnsFor`, and `_boolColumns`; do not add it to any of them. `clearCachedData()` wipes it on sign-out alongside the synced tables. Rows are keyed on the occurrence's resolved due instant (`due_at`), so editing a dismissed task's date or time re-arms its alert rather than staying silently dismissed.
 
 ## Other docs in the repo
 
