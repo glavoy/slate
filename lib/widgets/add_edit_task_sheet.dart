@@ -135,7 +135,10 @@ class _AddEditTaskSheetState extends ConsumerState<AddEditTaskSheet> {
         left: 20,
         right: 20,
         top: 16,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+        bottom:
+            MediaQuery.of(context).viewInsets.bottom +
+            MediaQuery.of(context).viewPadding.bottom +
+            16,
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
