@@ -1,7 +1,6 @@
 # Slate
 
-A personal productivity app for macOS, Windows, and Android — tasks, notes, a to-do list, and a
-metrics tracker — built with Flutter and Supabase, local-first with offline support.
+A personal productivity app for macOS, Windows, and Android — tasks, notes, a to-do list, and a metrics tracker — built with Flutter and Supabase, local-first with offline support.
 
 ## Features
 
@@ -61,9 +60,7 @@ The app follows a local-first, thin-layer pattern, repeated for every section:
 freezed model  →  Repository (local SQLite CRUD + sync scheduling)  →  @riverpod Notifier  →  Screen / Widget
 ```
 
-Repositories write to SQLite first and mark rows pending sync; a sync service then pushes and pulls
-changes with Supabase in the background. Providers listen for sync updates and refresh automatically,
-so every screen reflects both local edits and remote changes without a refresh button — and the app
+Repositories write to SQLite first and mark rows pending sync; a sync service then pushes and pulls changes with Supabase in the background. Providers listen for sync updates and refresh automatically, so every screen reflects both local edits and remote changes without a refresh button — and the app
 keeps working when offline.
 
 Authentication is enforced at the database — every table has `user_id uuid default auth.uid()` and a `for all` RLS policy. App code never sets `user_id` on insert; Postgres fills it from the JWT.

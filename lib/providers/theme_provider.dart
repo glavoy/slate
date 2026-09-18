@@ -6,7 +6,7 @@ part 'theme_provider.g.dart';
 
 const _themeKey = 'theme_mode';
 
-@riverpod
+@Riverpod(keepAlive: true)
 class ThemeNotifier extends _$ThemeNotifier {
   @override
   ThemeMode build() => ThemeMode.light;
