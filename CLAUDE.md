@@ -103,7 +103,7 @@ The local SQLite schema mirrors these tables and adds sync bookkeeping columns: 
 ## Other docs in the repo
 
 `AGENTS.md` covers coding style and PR conventions. `README.md` is a user-facing feature
-overview and is partly stale — it still describes a Journal section (removed, see
-`supabase/migrations/20260904000000_remove_journal_entries.sql`) and repositories talking
-directly to Supabase (they are now local-first via SQLite). Trust this file and the code
-over `README.md` on architecture.
+overview, kept in sync with the app's actual sections (Tasks, Notes, To Do, Tracker — no
+Journal or Simple List) and the local-first architecture. Trust this file and the code over
+`README.md` for implementation detail, but if you notice `README.md` drift from the app
+again, fix it rather than just noting the drift here.
