@@ -236,7 +236,11 @@ class _TaskCardState extends ConsumerState<TaskCard> {
 
   @override
   Widget build(BuildContext context) {
-    final isMacOS = Theme.of(context).platform == TargetPlatform.macOS;
+    final platform = Theme.of(context).platform;
+    final isDesktop =
+        platform == TargetPlatform.macOS ||
+        platform == TargetPlatform.windows ||
+        platform == TargetPlatform.linux;
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final timeStyle = ref.watch(timeFormatNotifierProvider);
@@ -249,106 +253,124 @@ class _TaskCardState extends ConsumerState<TaskCard> {
       color: colorScheme.onSurface.withValues(alpha: 0.75),
     );
 
+    final rowContent = GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: isDesktop ? null : () => _handleTap(context),
+      onSecondaryTapUp: isDesktop
+          ? (details) => _showContextMenu(context, details)
+          : null,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+            child: Row(
+              children: [
+                Checkbox(
+                  value: task.isDone,
+                  shape: const CircleBorder(),
+                  visualDensity: VisualDensity.compact,
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  onChanged: (_) =>
+                      ref.read(taskListProvider.notifier).markDone(task),
+                ),
+                const SizedBox(width: 8),
+                if (task.dueTime != null) ...[
+                  SizedBox(
+                    width: 64,
+                    child: Text(
+                      du.formatTimeAs(du.parseTime(task.dueTime!), timeStyle),
+                      style: taskMetaStyle,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                ],
+                Expanded(child: Text(task.title, style: taskTitleStyle)),
+                if (task.recurrence != RecurrenceType.none) ...[
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: colorScheme.primaryContainer,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      task.recurrence.label,
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: colorScheme.onPrimaryContainer,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                ],
+                if (_hasNotes)
+                  IconButton(
+                    icon: Icon(
+                      _expanded ? Icons.expand_less : Icons.notes,
+                      size: 20,
+                      color: _expanded
+                          ? colorScheme.primary
+                          : colorScheme.onSurface.withValues(alpha: 0.5),
+                    ),
+                    iconSize: 20,
+                    visualDensity: VisualDensity.compact,
+                    padding: const EdgeInsets.all(6),
+                    constraints: const BoxConstraints(),
+                    tooltip: _expanded ? 'Hide note' : 'Show note',
+                    onPressed: () => setState(() => _expanded = !_expanded),
+                  ),
+              ],
+            ),
+          ),
+          if (_expanded && _hasNotes)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(56, 0, 16, 8),
+              child: Text(
+                task.notes!,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  fontSize: 12,
+                  color: colorScheme.onSurface.withValues(alpha: 0.75),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+
+    if (isDesktop) return rowContent;
+
     return Slidable(
-      key: ValueKey(task.id),
+      key: ValueKey('${task.id}_$_expanded'),
+      groupTag: 'taskCardActions',
       endActionPane: ActionPane(
         motion: const DrawerMotion(),
         extentRatio: 0.28,
         children: [
-          SlidableAction(
+          CustomSlidableAction(
             onPressed: (ctx) => _handleSwipeDelete(ctx),
             backgroundColor: Colors.red,
             foregroundColor: Colors.white,
-            icon: Icons.delete_outline,
-            label: 'Delete',
+            child: const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.delete_outline, size: 18),
+                SizedBox(width: 4),
+                Flexible(
+                  child: Text(
+                    'Delete',
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 13),
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: isMacOS ? null : () => _handleTap(context),
-        onSecondaryTapUp: isMacOS
-            ? (details) => _showContextMenu(context, details)
-            : null,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-              child: Row(
-                children: [
-                  Checkbox(
-                    value: task.isDone,
-                    shape: const CircleBorder(),
-                    visualDensity: VisualDensity.compact,
-                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    onChanged: (_) =>
-                        ref.read(taskListProvider.notifier).markDone(task),
-                  ),
-                  const SizedBox(width: 8),
-                  if (task.dueTime != null) ...[
-                    SizedBox(
-                      width: 64,
-                      child: Text(
-                        du.formatTimeAs(du.parseTime(task.dueTime!), timeStyle),
-                        style: taskMetaStyle,
-                      ),
-                    ),
-                    const SizedBox(width: 4),
-                  ],
-                  Expanded(child: Text(task.title, style: taskTitleStyle)),
-                  if (task.recurrence != RecurrenceType.none) ...[
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 6,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: colorScheme.primaryContainer,
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text(
-                        task.recurrence.label,
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          color: colorScheme.onPrimaryContainer,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 4),
-                  ],
-                  if (_hasNotes)
-                    IconButton(
-                      icon: Icon(
-                        _expanded ? Icons.expand_less : Icons.notes,
-                        size: 20,
-                        color: _expanded
-                            ? colorScheme.primary
-                            : colorScheme.onSurface.withValues(alpha: 0.5),
-                      ),
-                      iconSize: 20,
-                      visualDensity: VisualDensity.compact,
-                      padding: const EdgeInsets.all(6),
-                      constraints: const BoxConstraints(),
-                      tooltip: _expanded ? 'Hide note' : 'Show note',
-                      onPressed: () => setState(() => _expanded = !_expanded),
-                    ),
-                ],
-              ),
-            ),
-            if (_expanded && _hasNotes)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(56, 0, 16, 8),
-                child: Text(
-                  task.notes!,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    fontSize: 12,
-                    color: colorScheme.onSurface.withValues(alpha: 0.75),
-                  ),
-                ),
-              ),
-          ],
-        ),
-      ),
+      child: rowContent,
     );
   }
 }

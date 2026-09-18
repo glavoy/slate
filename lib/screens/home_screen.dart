@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_slidable/flutter_slidable.dart';
 import '../providers/settings_providers.dart';
 import '../providers/task_providers.dart';
 import '../widgets/add_edit_task_sheet.dart';
@@ -46,51 +47,53 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (e, _) => Center(child: Text('Error: $e')),
       data: (_) {
-        return CustomScrollView(
-          slivers: [
-            if (overdue.isNotEmpty) ...[
-              SliverPersistentHeader(
-                pinned: true,
-                delegate: _SectionHeader(
-                  title: 'OVERDUE',
-                  color: Colors.red.shade400,
-                  theme: theme,
-                  isExpanded: _overdueExpanded,
-                  onTap: () =>
-                      setState(() => _overdueExpanded = !_overdueExpanded),
+        return SlidableAutoCloseBehavior(
+          child: CustomScrollView(
+            slivers: [
+              if (overdue.isNotEmpty) ...[
+                SliverPersistentHeader(
+                  pinned: true,
+                  delegate: _SectionHeader(
+                    title: 'OVERDUE',
+                    color: Colors.red.shade400,
+                    theme: theme,
+                    isExpanded: _overdueExpanded,
+                    onTap: () =>
+                        setState(() => _overdueExpanded = !_overdueExpanded),
+                  ),
                 ),
-              ),
-              if (_overdueExpanded)
-                TaskSection(tasks: overdue, isOverdueSection: true),
-            ],
-            if (upcoming.isNotEmpty) ...[
-              SliverPersistentHeader(
-                pinned: true,
-                delegate: _SectionHeader(
-                  title: 'UPCOMING',
-                  theme: theme,
-                  isExpanded: _upcomingExpanded,
-                  onTap: () =>
-                      setState(() => _upcomingExpanded = !_upcomingExpanded),
+                if (_overdueExpanded)
+                  TaskSection(tasks: overdue, isOverdueSection: true),
+              ],
+              if (upcoming.isNotEmpty) ...[
+                SliverPersistentHeader(
+                  pinned: true,
+                  delegate: _SectionHeader(
+                    title: 'UPCOMING',
+                    theme: theme,
+                    isExpanded: _upcomingExpanded,
+                    onTap: () =>
+                        setState(() => _upcomingExpanded = !_upcomingExpanded),
+                  ),
                 ),
-              ),
-              if (_upcomingExpanded) TaskSection(tasks: upcoming),
-            ],
-            if (overdue.isEmpty && upcoming.isEmpty)
-              const SliverFillRemaining(
-                hasScrollBody: false,
-                child: Padding(
-                  padding: EdgeInsets.only(top: 32),
-                  child: Center(
-                    child: Text(
-                      'All clear',
-                      style: TextStyle(fontSize: 18, color: Colors.grey),
+                if (_upcomingExpanded) TaskSection(tasks: upcoming),
+              ],
+              if (overdue.isEmpty && upcoming.isEmpty)
+                const SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: Padding(
+                    padding: EdgeInsets.only(top: 32),
+                    child: Center(
+                      child: Text(
+                        'All clear',
+                        style: TextStyle(fontSize: 18, color: Colors.grey),
+                      ),
                     ),
                   ),
                 ),
-              ),
-            const SliverToBoxAdapter(child: SizedBox(height: 80)),
-          ],
+              const SliverToBoxAdapter(child: SizedBox(height: 80)),
+            ],
+          ),
         );
       },
     );

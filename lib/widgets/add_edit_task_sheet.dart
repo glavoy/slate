@@ -42,7 +42,7 @@ class _AddEditTaskSheetState extends ConsumerState<AddEditTaskSheet> {
     _dueDate = t?.dueDate ?? widget.initialDate ?? DateTime.now();
     _dueTime = t?.dueTime != null
         ? du.parseTime(t!.dueTime!)
-        : du.defaultDueTime;
+        : du.nextHourDefaultDueTime();
     _recurrence = t?.recurrence ?? RecurrenceType.none;
   }
 

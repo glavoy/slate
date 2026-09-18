@@ -6,7 +6,13 @@ bool isOverdue(DateTime dueDate, [String? dueTime]) {
   final now = DateTime.now();
   if (dueTime != null) {
     final t = parseTime(dueTime);
-    final due = DateTime(dueDate.year, dueDate.month, dueDate.day, t.hour, t.minute);
+    final due = DateTime(
+      dueDate.year,
+      dueDate.month,
+      dueDate.day,
+      t.hour,
+      t.minute,
+    );
     return due.isBefore(now);
   }
   final todayMidnight = DateTime(now.year, now.month, now.day);
@@ -31,20 +37,34 @@ DateTime nextOccurrence(DateTime from, RecurrenceType recurrence) =>
     };
 
 const _monthAbbr = [
-  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
 ];
 const _dayAbbr = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const _dayFull = [
-  'Monday', 'Tuesday', 'Wednesday', 'Thursday',
-  'Friday', 'Saturday', 'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+  'Sunday',
 ];
 
 String formatDate(DateTime date) {
   final dayName = _dayAbbr[date.weekday - 1];
   final month = _monthAbbr[date.month - 1];
-  final yearSuffix =
-      date.year == DateTime.now().year ? '' : ', ${date.year}';
+  final yearSuffix = date.year == DateTime.now().year ? '' : ', ${date.year}';
   return '$dayName $month ${date.day}$yearSuffix';
 }
 
@@ -83,10 +103,7 @@ String formatDateGroupHeader(DateTime date) {
 // Parses "HH:MM:SS" or "HH:MM" from PostgreSQL time column
 TimeOfDay parseTime(String raw) {
   final parts = raw.split(':');
-  return TimeOfDay(
-    hour: int.parse(parts[0]),
-    minute: int.parse(parts[1]),
-  );
+  return TimeOfDay(hour: int.parse(parts[0]), minute: int.parse(parts[1]));
 }
 
 // Formats TimeOfDay to "HH:MM:00" for PostgreSQL
@@ -111,3 +128,10 @@ String formatTimeAs(TimeOfDay t, TimeFormatStyle style) {
 }
 
 const defaultDueTime = TimeOfDay(hour: 8, minute: 0);
+
+/// Default due time for a newly-created task: the next full hour after
+/// `now` (e.g. 9:20am -> 10:00am, 9:00am -> 10:00am).
+TimeOfDay nextHourDefaultDueTime([DateTime? now]) {
+  final n = now ?? DateTime.now();
+  return TimeOfDay(hour: (n.hour + 1) % 24, minute: 0);
+}
