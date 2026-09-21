@@ -39,10 +39,15 @@ class _AddEditTaskSheetState extends ConsumerState<AddEditTaskSheet> {
     final t = widget.task;
     _titleCtrl = TextEditingController(text: t?.title ?? '');
     _notesCtrl = TextEditingController(text: t?.notes ?? '');
-    _dueDate = t?.dueDate ?? widget.initialDate ?? DateTime.now();
+    final now = DateTime.now();
+    _dueDate = t?.dueDate ?? widget.initialDate ?? now;
     _dueTime = t?.dueTime != null
         ? du.parseTime(t!.dueTime!)
-        : du.nextHourDefaultDueTime();
+        : du.nextHourDefaultDueTime(now);
+    // After 11 PM the next hour is midnight, which is tomorrow.
+    if (_isNew && now.hour == 23 && DateUtils.isSameDay(_dueDate, now)) {
+      _dueDate = DateUtils.addDaysToDate(_dueDate, 1);
+    }
     _recurrence = t?.recurrence ?? RecurrenceType.none;
   }
 
